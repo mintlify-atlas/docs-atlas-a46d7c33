@@ -1,0 +1,516 @@
+---
+title: Conversation
+description: Unified enum for working with both groups and direct messages
+---
+
+The `Conversation` enum provides a unified interface for working with both group chats and direct messages. It allows you to write code that works with either conversation type without needing to check which type you're working with.
+
+## Overview
+
+`Conversation` is an enum with two cases that wrap either a `Group` or `Dm`. It implements common operations that work on both conversation types.
+
+```swift
+public enum Conversation: Identifiable, Equatable, Hashable {
+  case group(Group)
+  case dm(Dm)
+}
+```
+
+## Usage
+
+When you list conversations, you get back `Conversation` enums that can represent either type:
+
+```swift
+let conversations = try await client.conversations.list()
+
+for conversation in conversations {
+  switch conversation {
+  case .group(let group):
+    print("Group: \(group.id)")
+  case .dm(let dm):
+    print("DM with: \(try dm.peerInboxId)")
+  }
+}
+```
+
+## Properties
+
+### id
+
+Unique identifier for the conversation.
+
+<ParamField path="id" type="String">
+  Returns the ID from the underlying group or DM
+</ParamField>
+
+```swift
+let conversationId = conversation.id
+```
+
+### type
+
+The conversation type.
+
+<ParamField path="type" type="XMTPConversationType">
+  Either `.group` or `.dm`
+</ParamField>
+
+```swift
+switch conversation.type {
+case .group:
+  print("This is a group")
+case .dm:
+  print("This is a DM")
+}
+```
+
+### topic
+
+The conversation topic identifier.
+
+<ParamField path="topic" type="String">
+  The XMTP topic for this conversation
+</ParamField>
+
+```swift
+let topic = conversation.topic
+```
+
+### createdAt
+
+When the conversation was created.
+
+<ParamField path="createdAt" type="Date">
+  Creation timestamp as Date
+</ParamField>
+
+```swift
+let createdAt = conversation.createdAt
+```
+
+### createdAtNs
+
+Creation timestamp in nanoseconds.
+
+<ParamField path="createdAtNs" type="Int64">
+  Creation time in nanoseconds since epoch
+</ParamField>
+
+### lastActivityAtNs
+
+Timestamp of last activity in nanoseconds.
+
+<ParamField path="lastActivityAtNs" type="Int64">
+  Last activity time in nanoseconds since epoch
+</ParamField>
+
+### disappearingMessageSettings
+
+Settings for disappearing messages, if enabled.
+
+<ParamField path="disappearingMessageSettings" type="DisappearingMessageSettings?">
+  Nil if disappearing messages are not enabled
+</ParamField>
+
+```swift
+if let settings = conversation.disappearingMessageSettings {
+  print("Messages disappear after \(settings.timeNs) ns")
+}
+```
+
+### client
+
+The XMTP client associated with this conversation.
+
+<ParamField path="client" type="Client">
+  The Client instance
+</ParamField>
+
+## Methods
+
+### send(content:options:)
+
+Send a message in the conversation.
+
+<ParamField path="content" type="T" required>
+  The message content (String, Attachment, etc.)
+</ParamField>
+
+<ParamField path="options" type="SendOptions?">
+  Optional send options for content type, compression, etc.
+</ParamField>
+
+<ResponseField name="messageId" type="String">
+  The ID of the sent message
+</ResponseField>
+
+```swift
+// Send text
+try await conversation.send(content: "Hello!")
+
+// Send with options
+try await conversation.send(
+  content: attachment,
+  options: .init(contentType: ContentTypeAttachment)
+)
+```
+
+### send(encodedContent:visibilityOptions:)
+
+Send pre-encoded content.
+
+<ParamField path="encodedContent" type="EncodedContent" required>
+  Already-encoded content
+</ParamField>
+
+<ParamField path="visibilityOptions" type="MessageVisibilityOptions?">
+  Optional visibility settings
+</ParamField>
+
+### messages(limit:beforeNs:afterNs:direction:deliveryStatus:)
+
+Get messages from the conversation.
+
+<ParamField path="limit" type="Int?">
+  Maximum number of messages to return
+</ParamField>
+
+<ParamField path="beforeNs" type="Int64?">
+  Only messages before this timestamp (nanoseconds)
+</ParamField>
+
+<ParamField path="afterNs" type="Int64?">
+  Only messages after this timestamp (nanoseconds)
+</ParamField>
+
+<ParamField path="direction" type="SortDirection?">
+  `.ascending` or `.descending` (default)
+</ParamField>
+
+<ParamField path="deliveryStatus" type="MessageDeliveryStatus">
+  Filter by delivery status (default: `.all`)
+</ParamField>
+
+<ResponseField name="messages" type="[DecodedMessage]">
+  Array of decoded messages
+</ResponseField>
+
+```swift
+let messages = try await conversation.messages(limit: 50)
+```
+
+<Info>
+For UI rendering, consider using `enrichedMessages()` instead, which includes reactions and replies already linked to messages.
+</Info>
+
+### enrichedMessages(limit:beforeNs:afterNs:direction:)
+
+Get messages with enriched metadata for UI rendering.
+
+This method is recommended over `messages()` for display purposes because it automatically includes reactions, replies, and other associated metadata with each message.
+
+<ParamField path="limit" type="Int?">
+  Maximum number of messages to return
+</ParamField>
+
+<ParamField path="beforeNs" type="Int64?">
+  Only messages before this timestamp
+</ParamField>
+
+<ParamField path="afterNs" type="Int64?">
+  Only messages after this timestamp
+</ParamField>
+
+<ParamField path="direction" type="SortDirection?">
+  Sort direction (default: `.descending`)
+</ParamField>
+
+<ResponseField name="messages" type="[DecodedMessageV2]">
+  Array of enriched messages
+</ResponseField>
+
+```swift
+let enriched = try await conversation.enrichedMessages(limit: 50)
+
+for message in enriched {
+  if message.isSent {
+    print("You sent this message")
+  }
+}
+```
+
+### streamMessages(onClose:)
+
+Stream messages in real-time.
+
+<ParamField path="onClose" type="(() -> Void)?">
+  Optional callback when stream closes
+</ParamField>
+
+<ResponseField name="stream" type="AsyncThrowingStream<DecodedMessage, Error>">
+  Stream of incoming messages
+</ResponseField>
+
+```swift
+for try await message in conversation.streamMessages() {
+  print("New message: \(try message.content())")
+}
+```
+
+### sync()
+
+Synchronize the conversation with the network.
+
+```swift
+try await conversation.sync()
+```
+
+### members()
+
+Get the list of conversation members.
+
+<ResponseField name="members" type="[Member]">
+  Array of member objects
+</ResponseField>
+
+```swift
+let members = try await conversation.members()
+
+for member in members {
+  print("Member: \(member.inboxId)")
+}
+```
+
+### isCreator()
+
+Check if you created this conversation.
+
+<ResponseField name="isCreator" type="Bool">
+  True if you are the creator
+</ResponseField>
+
+```swift
+let isCreator = try await conversation.isCreator()
+```
+
+### isActive()
+
+Check if the conversation is active (not deleted or archived).
+
+<ResponseField name="isActive" type="Bool">
+  True if conversation is active
+</ResponseField>
+
+```swift
+if try conversation.isActive() {
+  print("Conversation is active")
+}
+```
+
+### consentState()
+
+Get the consent state for this conversation.
+
+<ResponseField name="state" type="ConsentState">
+  `.allowed`, `.denied`, or `.unknown`
+</ResponseField>
+
+```swift
+let state = try conversation.consentState()
+```
+
+### updateConsentState(state:)
+
+Update your consent preference for this conversation.
+
+<ParamField path="state" type="ConsentState" required>
+  The new consent state
+</ParamField>
+
+```swift
+try await conversation.updateConsentState(state: .allowed)
+```
+
+### isDisappearingMessagesEnabled()
+
+Check if disappearing messages are enabled.
+
+<ResponseField name="enabled" type="Bool">
+  True if disappearing messages are enabled
+</ResponseField>
+
+```swift
+if try conversation.isDisappearingMessagesEnabled() {
+  print("Messages will disappear")
+}
+```
+
+### updateDisappearingMessageSettings(_:)
+
+Update disappearing message settings.
+
+<ParamField path="disappearingMessageSettings" type="DisappearingMessageSettings?" required>
+  New settings, or nil to disable
+</ParamField>
+
+```swift
+try await conversation.updateDisappearingMessageSettings(
+  DisappearingMessageSettings(timeNs: 3600 * 1_000_000_000) // 1 hour
+)
+```
+
+### clearDisappearingMessageSettings()
+
+Disable disappearing messages.
+
+```swift
+try await conversation.clearDisappearingMessageSettings()
+```
+
+### countMessages(beforeNs:afterNs:deliveryStatus:)
+
+Count messages in the conversation.
+
+<ParamField path="beforeNs" type="Int64?">
+  Only count messages before this timestamp
+</ParamField>
+
+<ParamField path="afterNs" type="Int64?">
+  Only count messages after this timestamp
+</ParamField>
+
+<ParamField path="deliveryStatus" type="MessageDeliveryStatus">
+  Filter by delivery status
+</ParamField>
+
+<ResponseField name="count" type="Int64">
+  Number of messages matching the criteria
+</ResponseField>
+
+```swift
+let count = try conversation.countMessages()
+```
+
+### deleteMessage(messageId:)
+
+Delete a message by its ID.
+
+<ParamField path="messageId" type="String" required>
+  The hex-encoded message ID to delete
+</ParamField>
+
+<ResponseField name="deletionMessageId" type="String">
+  The ID of the deletion message
+</ResponseField>
+
+```swift
+try await conversation.deleteMessage(messageId: messageId)
+```
+
+### lastMessage()
+
+Get the most recent message in the conversation.
+
+<ResponseField name="message" type="DecodedMessage?">
+  The last message, or nil if no messages
+</ResponseField>
+
+```swift
+if let last = try await conversation.lastMessage() {
+  print("Last message: \(try last.content())")
+}
+```
+
+### prepareMessage(content:options:noSend:)
+
+Prepare a message without sending it immediately.
+
+<ParamField path="content" type="T" required>
+  The message content
+</ParamField>
+
+<ParamField path="options" type="SendOptions?">
+  Optional send options
+</ParamField>
+
+<ParamField path="noSend" type="Bool">
+  If true, don't send (just prepare). Default: false
+</ParamField>
+
+<ResponseField name="messageId" type="String">
+  The prepared message ID
+</ResponseField>
+
+```swift
+let messageId = try await conversation.prepareMessage(
+  content: "Hello",
+  noSend: true
+)
+```
+
+### publishMessages()
+
+Publish all prepared messages.
+
+```swift
+try await conversation.publishMessages()
+```
+
+### publishMessage(messageId:)
+
+Publish a specific prepared message.
+
+<ParamField path="messageId" type="String" required>
+  The message ID to publish
+</ParamField>
+
+```swift
+try await conversation.publishMessage(messageId: messageId)
+```
+
+## Pattern matching
+
+Use pattern matching to extract the underlying group or DM:
+
+```swift
+switch conversation {
+case .group(let group):
+  // Work with group-specific features
+  try await group.addMembers(addresses: [...])
+  
+case .dm(let dm):
+  // Work with DM-specific features
+  let peer = try dm.peerInboxId
+}
+```
+
+## Best practices
+
+<CardGroup cols={2}>
+  <Card title="Use for generic code" icon="code">
+    Use `Conversation` when writing code that works with any conversation type.
+  </Card>
+  <Card title="Pattern match for specifics" icon="code-branch">
+    Pattern match to access type-specific features like group member management.
+  </Card>
+  <Card title="Prefer enrichedMessages" icon="sparkles">
+    Use `enrichedMessages()` instead of `messages()` for UI rendering.
+  </Card>
+  <Card title="Check active state" icon="check">
+    Always check `isActive()` before operating on a conversation.
+  </Card>
+</CardGroup>
+
+## Related documentation
+
+<CardGroup cols={3}>
+  <Card title="Group" icon="users" href="/api/group">
+    API reference for Group struct
+  </Card>
+  <Card title="Dm" icon="message" href="/api/dm">
+    API reference for Dm struct
+  </Card>
+  <Card title="Conversations" icon="comments" href="/api/conversations">
+    Managing conversations
+  </Card>
+</CardGroup>

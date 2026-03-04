@@ -75,6 +75,7 @@
             "pages": [
               "api/client",
               "api/conversations",
+              "api/conversation",
               "api/group",
               "api/dm"
             ]
