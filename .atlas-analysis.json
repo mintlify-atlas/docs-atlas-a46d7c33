@@ -1,0 +1,134 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "XMTP iOS SDK",
+  "projectDescription": "Swift SDK for building secure, decentralized messaging applications on iOS using the XMTP protocol.",
+  "theme": "palm",
+  "primaryColor": "#6F3FF5",
+  "lightColor": "#A78BFA",
+  "darkColor": "#5B21B6",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/client",
+              "concepts/conversations",
+              "concepts/groups",
+              "concepts/direct-messages",
+              "concepts/messages",
+              "concepts/content-types"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/creating-client",
+              "guides/sending-messages",
+              "guides/receiving-messages",
+              "guides/managing-groups",
+              "guides/content-codecs",
+              "guides/push-notifications",
+              "guides/consent-preferences"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/database-encryption",
+              "advanced/custom-codecs",
+              "advanced/fork-recovery",
+              "advanced/streaming",
+              "advanced/testing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Classes",
+            "pages": [
+              "api/client",
+              "api/conversations",
+              "api/group",
+              "api/dm"
+            ]
+          },
+          {
+            "group": "Content Types",
+            "pages": [
+              "api/codecs/text-codec",
+              "api/codecs/attachment-codec",
+              "api/codecs/remote-attachment-codec",
+              "api/codecs/reaction-codec",
+              "api/codecs/reply-codec",
+              "api/codecs/read-receipt-codec"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "api/client-options",
+              "api/send-options",
+              "api/consent-state"
+            ]
+          },
+          {
+            "group": "Types & Protocols",
+            "pages": [
+              "api/signing-key",
+              "api/content-codec",
+              "api/xmtp-environment"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "End-to-end encrypted messaging using MLS protocol",
+    "Group messaging with permission management",
+    "Direct messaging between blockchain accounts",
+    "Extensible content type system with built-in codecs",
+    "Real-time message streaming",
+    "Push notification support",
+    "Database encryption for local storage",
+    "Consent and preference management",
+    "Swift Package Manager and CocoaPods support"
+  ],
+  "publicApiSurface": [
+    "Client",
+    "Conversations",
+    "Group",
+    "Dm",
+    "Conversation",
+    "ClientOptions",
+    "SendOptions",
+    "TextCodec",
+    "AttachmentCodec",
+    "RemoteAttachmentCodec",
+    "ReactionCodec",
+    "ReplyCodec",
+    "ReadReceiptCodec",
+    "GroupUpdatedCodec",
+    "TransactionReferenceCodec",
+    "SigningKey",
+    "ContentCodec",
+    "ConsentState",
+    "XMTPEnvironment",
+    "ForkRecoveryOptions",
+    "MessageVisibilityOptions"
+  ]
+}
