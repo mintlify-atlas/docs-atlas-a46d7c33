@@ -1,0 +1,306 @@
+---
+title: Conversations
+description: Manage and organize conversations with groups and direct messages
+---
+
+Conversations are the primary way to organize communication in XMTP. The SDK provides a unified interface for managing both group chats and direct messages (DMs).
+
+## Overview
+
+The `Conversations` class provides methods for creating, listing, finding, and streaming conversations. It's accessed through the `client.conversations` property.
+
+```swift
+let conversations = client.conversations
+
+// List all conversations
+let allConversations = try await conversations.list()
+
+// Create a new DM
+let dm = try await conversations.newDm(with: "0x1234...")
+
+// Create a new group
+let group = try await conversations.newGroup(
+  with: ["0x1234...", "0x5678..."],
+  permissions: .allMembers
+)
+```
+
+## Conversation types
+
+XMTP supports two types of conversations:
+
+### Direct messages (DMs)
+
+One-on-one encrypted conversations between two participants.
+
+```swift
+let dm = try await client.conversations.newDm(with: peerAddress)
+
+print("Created DM with peer: \(try dm.peerInboxId)")
+```
+
+### Groups
+
+Multi-participant conversations with configurable permissions and admin controls.
+
+```swift
+let group = try await client.conversations.newGroup(
+  with: ["0x1234...", "0x5678...", "0x9abc..."],
+  permissions: .allMembers,
+  name: "Project Team",
+  imageUrlSquare: "https://example.com/image.png"
+)
+
+print("Created group: \(group.id)")
+```
+
+## Listing conversations
+
+### List all conversations
+
+Retrieve all conversations (both groups and DMs).
+
+```swift
+let conversations = try await client.conversations.list()
+
+for conversation in conversations {
+  switch conversation {
+  case .group(let group):
+    print("Group: \(group.id)")
+  case .dm(let dm):
+    print("DM: \(dm.id)")
+  }
+}
+```
+
+### Filter by type
+
+List only groups or only DMs.
+
+```swift
+// List only groups
+let groups = try await client.conversations.listGroups()
+
+// List only DMs
+let dms = try await client.conversations.listDms()
+```
+
+### Sort conversations
+
+Control the order of returned conversations.
+
+```swift
+// Sort by creation time
+let byCreation = try await client.conversations.list(
+  order: .createdAt
+)
+
+// Sort by last activity
+let byActivity = try await client.conversations.list(
+  order: .lastActivity
+)
+```
+
+### Limit results
+
+Limit the number of conversations returned.
+
+```swift
+let recent = try await client.conversations.list(
+  limit: 20,
+  order: .lastActivity
+)
+```
+
+## Finding conversations
+
+### Find by ID
+
+Find a specific group or DM by its ID.
+
+```swift
+// Find a specific group
+if let group = try await client.conversations.findGroup(byId: groupId) {
+  print("Found group: \(group.id)")
+}
+
+// Find a specific DM
+if let dm = try await client.conversations.findDm(byId: dmId) {
+  print("Found DM: \(dm.id)")
+}
+```
+
+### Find message
+
+Find a specific message by its ID.
+
+```swift
+if let message = try await client.conversations.findMessage(messageId: messageId) {
+  print("Message content: \(try message.content())")
+}
+```
+
+## Creating conversations
+
+### Create a DM
+
+```swift
+let dm = try await client.conversations.newDm(with: peerAddress)
+
+// Send a message
+try await dm.send(content: "Hello!")
+```
+
+### Create a group
+
+Groups support various configuration options.
+
+```swift
+let group = try await client.conversations.newGroup(
+  with: memberAddresses,
+  permissions: .adminOnly,
+  name: "Team Chat",
+  imageUrlSquare: "https://example.com/avatar.png",
+  description: "Discussion for the core team"
+)
+```
+
+### Group permissions
+
+Control who can perform actions in the group:
+
+- **`.allMembers`**: All members can add members and update metadata
+- **`.adminOnly`**: Only admins can add members and update metadata
+
+```swift
+let openGroup = try await client.conversations.newGroup(
+  with: members,
+  permissions: .allMembers
+)
+
+let restrictedGroup = try await client.conversations.newGroup(
+  with: members,
+  permissions: .adminOnly
+)
+```
+
+## Streaming conversations
+
+Receive real-time updates when new conversations are created.
+
+```swift
+for try await conversation in client.conversations.stream() {
+  switch conversation {
+  case .group(let group):
+    print("New group: \(group.id)")
+  case .dm(let dm):
+    print("New DM with: \(try dm.peerInboxId)")
+  }
+}
+```
+
+### Stream all messages
+
+Stream messages from all conversations.
+
+```swift
+for try await message in client.conversations.streamAllMessages() {
+  print("New message: \(try message.content())")
+  print("From conversation: \(message.conversationId.toHex)")
+}
+```
+
+### Stream message deletions
+
+Receive notifications when messages are deleted.
+
+```swift
+for try await deletedMessage in client.conversations.streamMessageDeletions() {
+  print("Message deleted: \(deletedMessage.id.toHex)")
+}
+```
+
+## Synchronization
+
+Sync conversations with the network to receive updates.
+
+```swift
+// Sync all conversations
+let summary = try await client.conversations.syncAll()
+print("Synced \(summary.numSynced) of \(summary.numEligible) conversations")
+
+// Sync only groups
+try await client.conversations.syncGroups()
+
+// Sync only DMs
+try await client.conversations.syncDms()
+```
+
+<Info>
+Synchronization pulls the latest state from the network, including new messages, membership changes, and metadata updates.
+</Info>
+
+## Consent filtering
+
+Filter conversations by consent state.
+
+```swift
+// Get allowed conversations only
+let allowed = try await client.conversations.list(
+  consentState: .allowed
+)
+
+// Get conversations requiring review
+let unknown = try await client.conversations.list(
+  consentState: .unknown
+)
+```
+
+## Error handling
+
+Handle conversation-related errors.
+
+```swift
+do {
+  let group = try await client.conversations.newGroup(
+    with: memberAddresses
+  )
+} catch ConversationError.memberNotRegistered(let addresses) {
+  print("These addresses are not registered: \(addresses)")
+} catch ConversationError.memberCannotBeSelf {
+  print("You cannot add yourself to a group")
+} catch {
+  print("Unexpected error: \(error)")
+}
+```
+
+## Best practices
+
+<CardGroup cols={2}>
+  <Card title="Sync regularly" icon="rotate">
+    Call `syncAll()` periodically to ensure conversations are up to date with the network.
+  </Card>
+  <Card title="Use streaming" icon="tower-broadcast">
+    Implement streaming for real-time updates rather than polling.
+  </Card>
+  <Card title="Check member eligibility" icon="user-check">
+    Verify addresses can receive messages before creating conversations.
+  </Card>
+  <Card title="Handle errors gracefully" icon="triangle-exclamation">
+    Always handle cases where members aren't registered or other creation errors occur.
+  </Card>
+</CardGroup>
+
+## Related documentation
+
+<CardGroup cols={3}>
+  <Card title="Groups" icon="users" href="/concepts/groups">
+    Learn about group conversations and member management
+  </Card>
+  <Card title="Direct messages" icon="message" href="/concepts/direct-messages">
+    Understand one-on-one messaging
+  </Card>
+  <Card title="Conversations API" icon="code" href="/api/conversations">
+    Complete API reference for Conversations class
+  </Card>
+</CardGroup>

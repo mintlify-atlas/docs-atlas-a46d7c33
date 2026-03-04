@@ -1,0 +1,238 @@
+---
+title: Client
+description: The XMTP client manages your connection to the network and provides access to conversations
+---
+
+The `Client` is the main entry point for interacting with the XMTP network. It manages authentication, network connections, and provides access to conversations and messages.
+
+## Overview
+
+The Client class represents an authenticated connection to the XMTP network. Each client is associated with a blockchain account (via a signing key) and maintains an inbox for managing conversations.
+
+```swift
+import XMTPiOS
+
+let client = try await Client.create(
+  account: account,
+  options: .init(
+    api: .init(env: .production),
+    dbEncryptionKey: encryptionKey
+  )
+)
+```
+
+## Key concepts
+
+### Inbox ID
+
+Each client has a unique `inboxID` that identifies the user across devices. Multiple installations can share the same inbox ID for multi-device support.
+
+```swift
+let inboxId = client.inboxID
+print("Inbox ID: \(inboxId)")
+```
+
+### Installation ID
+
+Each client instance has a unique `installationID` that identifies the specific device or installation.
+
+```swift
+let installationId = client.installationID
+print("Installation ID: \(installationId)")
+```
+
+### Network environment
+
+Clients can connect to different XMTP network environments:
+
+- **Production**: Live network for real-world use
+- **Dev**: Development network for testing
+- **Local**: Local test network for development
+
+```swift
+let options = ClientOptions(
+  api: .init(env: .production),
+  dbEncryptionKey: encryptionKey
+)
+```
+
+## Database and encryption
+
+XMTP clients use a local encrypted database to store conversations and messages. You must provide an encryption key when creating a client.
+
+```swift
+import CryptoKit
+
+// Generate a random encryption key
+let encryptionKey = SymmetricKey(size: .bits256)
+let keyData = encryptionKey.withUnsafeBytes { Data($0) }
+
+let client = try await Client.create(
+  account: account,
+  options: .init(
+    api: .init(env: .production),
+    dbEncryptionKey: keyData
+  )
+)
+```
+
+<Warning>
+Store the database encryption key securely using iOS Keychain. Losing the key means losing access to local conversation data.
+</Warning>
+
+## Client properties
+
+### Public identity
+
+The client's public identity contains information about the associated blockchain account.
+
+```swift
+let identity = client.publicIdentity
+print("Account address: \(identity.address)")
+```
+
+### LibXMTP version
+
+Check the version of the underlying LibXMTP library.
+
+```swift
+let version = client.libXMTPVersion
+print("LibXMTP version: \(version)")
+```
+
+### Database path
+
+Access the file system path to the client's database.
+
+```swift
+let dbPath = client.dbPath
+print("Database location: \(dbPath)")
+```
+
+## Accessing conversations
+
+The client provides access to conversations through the `conversations` property.
+
+```swift
+// List all conversations
+let allConversations = try await client.conversations.list()
+
+// Create a new conversation
+let dm = try await client.conversations.newDm(with: "0x1234...")
+
+// Create a group
+let group = try await client.conversations.newGroup(
+  with: ["0x1234...", "0x5678..."],
+  permissions: .allMembers
+)
+```
+
+See [Conversations](/concepts/conversations) for more details.
+
+## Managing preferences
+
+The client provides access to privacy preferences through the `preferences` property.
+
+```swift
+// Allow an address
+try await client.preferences.setConsentState(
+  [ConsentRecord(
+    value: "0x1234...",
+    entryType: .address,
+    consentType: .allowed
+  )]
+)
+
+// Check consent state
+let state = try await client.preferences.consentState(
+  addresses: ["0x1234..."]
+)
+```
+
+See [Consent preferences](/guides/consent-preferences) for more details.
+
+## Checking message eligibility
+
+Before sending messages, check if addresses can receive XMTP messages.
+
+```swift
+let canMessage = try await Client.canMessage(
+  ["0x1234...", "0x5678..."],
+  options: .init(api: .init(env: .production))
+)
+
+for (address, canReceive) in canMessage {
+  if canReceive {
+    print("\(address) can receive XMTP messages")
+  }
+}
+```
+
+## Managing installations
+
+Revoke access for compromised or old installations.
+
+```swift
+// Revoke a specific installation
+try await client.revokeInstallations(installationIds: ["installation-id"])
+
+// Revoke all other installations
+try await client.revokeAllOtherInstallations()
+```
+
+<Warning>
+Revoking installations is irreversible. Revoked installations will no longer be able to send or receive messages.
+</Warning>
+
+## Error handling
+
+Handle client-related errors using `ClientError`.
+
+```swift
+do {
+  let client = try await Client.create(
+    account: account,
+    options: options
+  )
+} catch ClientError.creationError(let message) {
+  print("Failed to create client: \(message)")
+} catch ClientError.invalidInboxId(let inboxId) {
+  print("Invalid inbox ID: \(inboxId)")
+} catch {
+  print("Unexpected error: \(error)")
+}
+```
+
+## Best practices
+
+<CardGroup cols={2}>
+  <Card title="Secure the encryption key" icon="key">
+    Store the database encryption key in iOS Keychain, never in UserDefaults or plain files.
+  </Card>
+  <Card title="Handle network errors" icon="wifi">
+    Implement retry logic for network operations and handle offline scenarios gracefully.
+  </Card>
+  <Card title="Use production environment" icon="shield">
+    Only use `.production` environment for live apps. Use `.dev` for testing only.
+  </Card>
+  <Card title="Check message eligibility" icon="check">
+    Always check if addresses can receive messages before attempting to send.
+  </Card>
+</CardGroup>
+
+## Related documentation
+
+<CardGroup cols={2}>
+  <Card title="Creating a client" icon="rocket" href="/guides/creating-client">
+    Step-by-step guide to client creation and configuration
+  </Card>
+  <Card title="Client API reference" icon="code" href="/api/client">
+    Complete API documentation for the Client class
+  </Card>
+  <Card title="Client options" icon="sliders" href="/api/client-options">
+    Detailed configuration options for clients
+  </Card>
+  <Card title="Database encryption" icon="lock" href="/advanced/database-encryption">
+    Advanced guide to database encryption and key management
+  </Card>
+</CardGroup>

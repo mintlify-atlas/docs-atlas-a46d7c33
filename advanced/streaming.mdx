@@ -1,0 +1,509 @@
+---
+title: Message Streaming
+description: Stream real-time messages from groups and direct messages
+---
+
+The XMTP iOS SDK provides streaming APIs to receive messages in real-time as they arrive, enabling responsive chat interfaces and live updates.
+
+## Overview
+
+Streaming allows you to:
+
+- Receive messages instantly as they're sent
+- Build real-time chat interfaces
+- Process incoming messages without polling
+- React to conversation updates immediately
+
+Streams use Swift's `AsyncThrowingStream` for efficient, cancellable async iteration.
+
+## Streaming Group Messages
+
+Stream messages from a group conversation:
+
+```swift Group.swift:489-521
+import XMTPiOS
+
+func startStreamingMessages(group: Group) {
+    Task {
+        let stream = group.streamMessages()
+        
+        for try await message in stream {
+            print("New message from \(message.senderInboxId): \(message.content())")
+            
+            // Update UI, send notifications, etc.
+            await handleNewMessage(message)
+        }
+    }
+}
+```
+
+### Stream Lifecycle
+
+The stream remains active until:
+
+- The task is cancelled
+- An error occurs
+- You explicitly end the stream
+
+```swift
+func streamWithCancellation(group: Group) {
+    let task = Task {
+        let stream = group.streamMessages()
+        
+        for try await message in stream {
+            print("Received: \(message.content())")
+        }
+    }
+    
+    // Later: cancel the stream
+    task.cancel()
+}
+```
+
+### Manual Stream Control
+
+Explicitly end a stream when needed:
+
+```swift Group.swift:485-487
+let group = try await client.conversations.findGroup(by: groupId)
+
+// Start streaming
+let stream = group.streamMessages()
+
+Task {
+    for try await message in stream {
+        print("Message: \(message.content())")
+    }
+}
+
+// Later: stop the stream
+group.endStream()
+```
+
+## Streaming DM Messages
+
+Direct messages use the same streaming API:
+
+```swift Dm.swift:274-305
+import XMTPiOS
+
+func streamDMMessages(dm: Dm) {
+    Task {
+        let stream = dm.streamMessages()
+        
+        for try await message in stream {
+            let content: String = try message.content()
+            print("DM from \(message.senderInboxId): \(content)")
+        }
+    }
+}
+```
+
+## Stream Cleanup Callbacks
+
+Execute code when a stream closes:
+
+```swift Dm.swift:274
+func streamWithCleanup(group: Group) {
+    Task {
+        let stream = group.streamMessages(onClose: {
+            print("Stream closed - cleaning up")
+            // Update UI, save state, etc.
+        })
+        
+        for try await message in stream {
+            await processMessage(message)
+        }
+    }
+}
+```
+
+## Processing Different Content Types
+
+Handle various content types in your stream:
+
+```swift
+func streamWithContentTypes(group: Group) {
+    Task {
+        let stream = group.streamMessages()
+        
+        for try await message in stream {
+            switch message.encodedContent.type {
+            case ContentTypeText:
+                let text: String = try message.content()
+                print("Text: \(text)")
+                
+            case ContentTypeReaction:
+                let reaction: Reaction = try message.content()
+                print("Reaction: \(reaction.content) to \(reaction.reference)")
+                
+            case ContentTypeAttachment:
+                let attachment: Attachment = try message.content()
+                print("Attachment: \(attachment.filename)")
+                
+            default:
+                print("Unknown content type: \(message.encodedContent.type)")
+            }
+        }
+    }
+}
+```
+
+## SwiftUI Integration
+
+Integrate streaming into SwiftUI views:
+
+```swift
+import SwiftUI
+import XMTPiOS
+
+struct ConversationView: View {
+    let group: Group
+    @State private var messages: [DecodedMessage] = []
+    @State private var streamTask: Task<Void, Never>?
+    
+    var body: some View {
+        VStack {
+            ScrollView {
+                ForEach(messages, id: \.id) { message in
+                    MessageRow(message: message)
+                }
+            }
+        }
+        .onAppear {
+            startStreaming()
+        }
+        .onDisappear {
+            stopStreaming()
+        }
+    }
+    
+    private func startStreaming() {
+        streamTask = Task {
+            let stream = group.streamMessages()
+            
+            for try await message in stream {
+                await MainActor.run {
+                    messages.append(message)
+                }
+            }
+        }
+    }
+    
+    private func stopStreaming() {
+        streamTask?.cancel()
+        streamTask = nil
+    }
+}
+```
+
+## Streaming All Conversations
+
+Stream messages from all conversations simultaneously:
+
+```swift
+class MessageStreamManager {
+    private var streamTasks: [String: Task<Void, Never>] = [:]
+    private let client: Client
+    
+    init(client: Client) {
+        self.client = client
+    }
+    
+    func streamAllConversations() async throws {
+        let groups = try await client.conversations.groups()
+        let dms = try await client.conversations.dms()
+        
+        // Stream all groups
+        for group in groups {
+            streamTasks[group.id] = Task {
+                let stream = group.streamMessages()
+                for try await message in stream {
+                    await handleMessage(message, in: group.id)
+                }
+            }
+        }
+        
+        // Stream all DMs
+        for dm in dms {
+            streamTasks[dm.id] = Task {
+                let stream = dm.streamMessages()
+                for try await message in stream {
+                    await handleMessage(message, in: dm.id)
+                }
+            }
+        }
+    }
+    
+    func stopAllStreams() {
+        for task in streamTasks.values {
+            task.cancel()
+        }
+        streamTasks.removeAll()
+    }
+    
+    private func handleMessage(_ message: DecodedMessage, in conversationId: String) async {
+        print("[\(conversationId)] New message: \(message.id)")
+        // Process message, update UI, send notifications, etc.
+    }
+}
+```
+
+## Error Handling
+
+Handle stream errors gracefully:
+
+```swift
+func streamWithErrorHandling(group: Group) {
+    Task {
+        do {
+            let stream = group.streamMessages(onClose: {
+                print("Stream closed normally")
+            })
+            
+            for try await message in stream {
+                do {
+                    let content: String = try message.content()
+                    print("Message: \(content)")
+                } catch {
+                    print("Error decoding message: \(error)")
+                    // Continue streaming despite decode error
+                }
+            }
+        } catch {
+            print("Stream error: \(error)")
+            // Attempt to reconnect
+            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
+            streamWithErrorHandling(group: group)
+        }
+    }
+}
+```
+
+## Filtering Streamed Messages
+
+Filter messages as they arrive:
+
+```swift
+func streamFilteredMessages(group: Group, excludeSender: String) {
+    Task {
+        let stream = group.streamMessages()
+        
+        for try await message in stream {
+            // Skip messages from specific sender
+            guard message.senderInboxId != excludeSender else {
+                continue
+            }
+            
+            // Skip reactions
+            guard message.encodedContent.type != ContentTypeReaction else {
+                continue
+            }
+            
+            // Process the message
+            await handleMessage(message)
+        }
+    }
+}
+```
+
+## Background Streaming
+
+Keep streams active in the background:
+
+```swift
+import BackgroundTasks
+
+class BackgroundStreamManager {
+    func registerBackgroundTask() {
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: "com.example.xmtp.stream",
+            using: nil
+        ) { task in
+            self.handleBackgroundStream(task: task as! BGProcessingTask)
+        }
+    }
+    
+    func handleBackgroundStream(task: BGProcessingTask) {
+        let streamTask = Task {
+            do {
+                let client = try await createClient()
+                let groups = try await client.conversations.groups()
+                
+                // Stream for limited time in background
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    for conversation in groups {
+                        group.addTask {
+                            let stream = conversation.streamMessages()
+                            for try await message in stream {
+                                await self.processBackgroundMessage(message)
+                            }
+                        }
+                    }
+                }
+            } catch {
+                print("Background stream error: \(error)")
+            }
+        }
+        
+        task.expirationHandler = {
+            streamTask.cancel()
+        }
+    }
+    
+    private func processBackgroundMessage(_ message: DecodedMessage) async {
+        // Send local notification
+        let content = UNMutableNotificationContent()
+        content.title = "New Message"
+        content.body = try? message.content()
+        
+        let request = UNNotificationRequest(
+            identifier: message.id,
+            content: content,
+            trigger: nil
+        )
+        
+        try? await UNUserNotificationCenter.current().add(request)
+    }
+}
+```
+
+## Performance Optimization
+
+### Debouncing Updates
+
+Prevent UI thrashing with high message volumes:
+
+```swift
+import Combine
+
+class StreamViewModel: ObservableObject {
+    @Published var messages: [DecodedMessage] = []
+    private var pendingMessages: [DecodedMessage] = []
+    private var debounceTimer: Timer?
+    
+    func startStreaming(group: Group) {
+        Task {
+            let stream = group.streamMessages()
+            
+            for try await message in stream {
+                pendingMessages.append(message)
+                scheduleUpdate()
+            }
+        }
+    }
+    
+    private func scheduleUpdate() {
+        debounceTimer?.invalidate()
+        debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+            Task { @MainActor in
+                self.messages.append(contentsOf: self.pendingMessages)
+                self.pendingMessages.removeAll()
+            }
+        }
+    }
+}
+```
+
+### Batching Messages
+
+Process messages in batches:
+
+```swift
+func streamWithBatching(group: Group, batchSize: Int = 10) {
+    Task {
+        let stream = group.streamMessages()
+        var batch: [DecodedMessage] = []
+        
+        for try await message in stream {
+            batch.append(message)
+            
+            if batch.count >= batchSize {
+                await processBatch(batch)
+                batch.removeAll()
+            }
+        }
+        
+        // Process remaining messages
+        if !batch.isEmpty {
+            await processBatch(batch)
+        }
+    }
+}
+
+func processBatch(_ messages: [DecodedMessage]) async {
+    // Batch database inserts, UI updates, etc.
+    print("Processing batch of \(messages.count) messages")
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Cancel on Cleanup" icon="xmark">
+    Always cancel stream tasks in onDisappear or deinit
+  </Card>
+  <Card title="Error Recovery" icon="rotate">
+    Implement automatic reconnection for dropped streams
+  </Card>
+  <Card title="Filter Early" icon="filter">
+    Filter unwanted messages before processing to save resources
+  </Card>
+  <Card title="Batch Updates" icon="layer-group">
+    Batch UI updates to prevent excessive re-renders
+  </Card>
+</CardGroup>
+
+## Common Patterns
+
+### Reconnecting Streams
+
+```swift
+class ReconnectingStream {
+    private var streamTask: Task<Void, Never>?
+    private let maxRetries = 3
+    private var retryCount = 0
+    
+    func startStream(group: Group) {
+        streamTask?.cancel()
+        
+        streamTask = Task {
+            while retryCount < maxRetries {
+                do {
+                    let stream = group.streamMessages()
+                    retryCount = 0  // Reset on successful connection
+                    
+                    for try await message in stream {
+                        await handleMessage(message)
+                    }
+                } catch {
+                    retryCount += 1
+                    print("Stream error, retry \(retryCount)/\(maxRetries)")
+                    try? await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(retryCount)) * 1_000_000_000))
+                }
+            }
+        }
+    }
+    
+    func stop() {
+        streamTask?.cancel()
+        streamTask = nil
+        retryCount = 0
+    }
+    
+    private func handleMessage(_ message: DecodedMessage) async {
+        // Process message
+    }
+}
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Group Conversations" href="/conversations/groups">
+    Working with group conversations
+  </Card>
+  <Card title="Direct Messages" href="/conversations/dms">
+    Working with direct messages
+  </Card>
+</CardGroup>

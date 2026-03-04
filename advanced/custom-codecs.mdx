@@ -1,0 +1,428 @@
+---
+title: Custom Content Codecs
+description: Create custom content types for specialized message formats
+---
+
+The XMTP iOS SDK uses a codec system to encode and decode different content types in messages. You can create custom codecs to support specialized message formats beyond the built-in types.
+
+## Overview
+
+Codecs transform content between its native Swift representation and the encoded format stored in messages. The SDK includes built-in codecs for:
+
+- `text` - Plain text messages
+- `attachment` - File attachments
+- `remoteAttachment` - Remote file references
+- `reaction` - Message reactions
+- `reply` - Message replies
+- `readReceipt` - Read receipts
+- `transactionReference` - Blockchain transaction references
+
+## ContentCodec Protocol
+
+All codecs must implement the `ContentCodec` protocol:
+
+```swift ContentCodec.swift:80-88
+public protocol ContentCodec: Hashable, Equatable {
+    associatedtype T
+    
+    var contentType: ContentTypeID { get }
+    func encode(content: T) throws -> EncodedContent
+    func decode(content: EncodedContent) throws -> T
+    func fallback(content: T) throws -> String?
+    func shouldPush(content: T) throws -> Bool
+}
+```
+
+### Protocol Requirements
+
+- `T` - The Swift type this codec encodes/decodes
+- `contentType` - Unique identifier for this content type
+- `encode(content:)` - Convert Swift type to encoded format
+- `decode(content:)` - Convert encoded format to Swift type
+- `fallback(content:)` - Provide a text fallback for unsupported clients
+- `shouldPush(content:)` - Whether to send push notifications for this content
+
+## Creating a Custom Codec
+
+### Step 1: Define Your Content Type
+
+Create a unique content type identifier:
+
+```swift ContentTypeID.swift:12-18
+public let ContentTypeProductCard = ContentTypeID(
+    authorityID: "mycompany.com",
+    typeID: "product-card",
+    versionMajor: 1,
+    versionMinor: 0
+)
+```
+
+<Note>
+Use your domain for the `authorityID` to avoid conflicts. The `typeID` should be a kebab-case identifier.
+</Note>
+
+### Step 2: Define Your Content Struct
+
+Create a Swift type to represent your content:
+
+```swift
+public struct ProductCard: Codable {
+    public let id: String
+    public let name: String
+    public let price: Decimal
+    public let imageUrl: String
+    public let description: String
+    public let category: String
+    
+    public init(
+        id: String,
+        name: String,
+        price: Decimal,
+        imageUrl: String,
+        description: String,
+        category: String
+    ) {
+        self.id = id
+        self.name = name
+        self.price = price
+        self.imageUrl = imageUrl
+        self.description = description
+        self.category = category
+    }
+}
+```
+
+### Step 3: Implement the Codec
+
+Implement the `ContentCodec` protocol:
+
+```swift TextCodec.swift:16-52
+public struct ProductCardCodec: ContentCodec {
+    public typealias T = ProductCard
+    
+    public init() {}
+    
+    public var contentType = ContentTypeProductCard
+    
+    public func encode(content: ProductCard) throws -> EncodedContent {
+        var encodedContent = EncodedContent()
+        
+        encodedContent.type = ContentTypeProductCard
+        encodedContent.content = try JSONEncoder().encode(content)
+        
+        return encodedContent
+    }
+    
+    public func decode(content: EncodedContent) throws -> ProductCard {
+        return try JSONDecoder().decode(ProductCard.self, from: content.content)
+    }
+    
+    public func fallback(content: ProductCard) throws -> String? {
+        return "Product: \(content.name) - $\(content.price)"
+    }
+    
+    public func shouldPush(content: ProductCard) throws -> Bool {
+        return true
+    }
+}
+```
+
+## Registering Your Codec
+
+Register custom codecs with the client before use:
+
+```swift Client.swift:200-202
+import XMTPiOS
+
+// Register globally for all clients
+Client.register(codec: ProductCardCodec())
+
+// Or register per-client during initialization
+let options = ClientOptions(
+    api: .init(env: .production),
+    codecs: [ProductCardCodec()],
+    dbEncryptionKey: encryptionKey
+)
+
+let client = try await Client.create(
+    account: signingKey,
+    options: options
+)
+```
+
+## Sending Custom Content
+
+Once registered, send messages using your custom content type:
+
+```swift Group.swift:364-371
+let productCard = ProductCard(
+    id: "prod_123",
+    name: "Wireless Headphones",
+    price: 99.99,
+    imageUrl: "https://example.com/headphones.jpg",
+    description: "Premium noise-canceling headphones",
+    category: "Electronics"
+)
+
+let group = try await client.conversations.newGroup(with: [peerAddress])
+try await group.send(
+    content: productCard,
+    options: SendOptions(contentType: ContentTypeProductCard)
+)
+```
+
+## Decoding Custom Content
+
+Decode received messages using the registered codec:
+
+```swift EncodedContent.swift:17-31
+let messages = try await group.messages()
+
+for message in messages {
+    if message.encodedContent.type == ContentTypeProductCard {
+        let productCard: ProductCard = try message.content()
+        print("Received product: \(productCard.name)")
+        print("Price: $\(productCard.price)")
+    }
+}
+```
+
+## Advanced Example: Location Codec
+
+Here's a complete example of a location-sharing codec:
+
+```swift
+import Foundation
+import CoreLocation
+import XMTPiOS
+
+// Content Type Definition
+public let ContentTypeLocation = ContentTypeID(
+    authorityID: "xmtp.org",
+    typeID: "location",
+    versionMajor: 1,
+    versionMinor: 0
+)
+
+// Content Structure
+public struct Location: Codable {
+    public let latitude: Double
+    public let longitude: Double
+    public let accuracy: Double?
+    public let timestamp: Date
+    public let label: String?
+    
+    public init(
+        latitude: Double,
+        longitude: Double,
+        accuracy: Double? = nil,
+        timestamp: Date = Date(),
+        label: String? = nil
+    ) {
+        self.latitude = latitude
+        self.longitude = longitude
+        self.accuracy = accuracy
+        self.timestamp = timestamp
+        self.label = label
+    }
+    
+    // Convenience initializer from CLLocation
+    public init(from location: CLLocation, label: String? = nil) {
+        self.latitude = location.coordinate.latitude
+        self.longitude = location.coordinate.longitude
+        self.accuracy = location.horizontalAccuracy
+        self.timestamp = location.timestamp
+        self.label = label
+    }
+}
+
+// Codec Implementation
+public struct LocationCodec: ContentCodec {
+    public typealias T = Location
+    
+    public init() {}
+    
+    public var contentType = ContentTypeLocation
+    
+    public func encode(content: Location) throws -> EncodedContent {
+        var encodedContent = EncodedContent()
+        
+        encodedContent.type = ContentTypeLocation
+        
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encodedContent.content = try encoder.encode(content)
+        
+        // Store label in parameters for easy access
+        if let label = content.label {
+            encodedContent.parameters["label"] = label
+        }
+        
+        return encodedContent
+    }
+    
+    public func decode(content: EncodedContent) throws -> Location {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(Location.self, from: content.content)
+    }
+    
+    public func fallback(content: Location) throws -> String? {
+        let coords = String(format: "%.6f, %.6f", content.latitude, content.longitude)
+        if let label = content.label {
+            return "📍 \(label): \(coords)"
+        }
+        return "📍 Location: \(coords)"
+    }
+    
+    public func shouldPush(content: Location) throws -> Bool {
+        return true
+    }
+}
+
+// Usage Example
+func shareLocation(in group: Group, location: CLLocation) async throws {
+    let locationData = Location(
+        from: location,
+        label: "Current Location"
+    )
+    
+    try await group.send(
+        content: locationData,
+        options: SendOptions(contentType: ContentTypeLocation)
+    )
+}
+```
+
+## Codec Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Unique IDs" icon="fingerprint">
+    Use your domain in authorityID to prevent content type collisions
+  </Card>
+  <Card title="Versioning" icon="code-branch">
+    Increment version numbers when making breaking changes to your format
+  </Card>
+  <Card title="Fallback Text" icon="message">
+    Always provide meaningful fallback text for clients that don't support your codec
+  </Card>
+  <Card title="JSON Encoding" icon="file-code">
+    Use JSON encoding for structured data - it's widely supported and debuggable
+  </Card>
+</CardGroup>
+
+### Content Parameters
+
+You can store metadata in the `parameters` dictionary for quick access without decoding:
+
+```swift
+public func encode(content: ProductCard) throws -> EncodedContent {
+    var encodedContent = EncodedContent()
+    
+    encodedContent.type = ContentTypeProductCard
+    encodedContent.content = try JSONEncoder().encode(content)
+    
+    // Add parameters for metadata
+    encodedContent.parameters["category"] = content.category
+    encodedContent.parameters["price"] = String(describing: content.price)
+    
+    return encodedContent
+}
+```
+
+### Backward Compatibility
+
+Handle multiple versions gracefully:
+
+```swift ReactionCodec.swift:86-102
+public func decode(content: EncodedContent) throws -> ProductCard {
+    // Try to decode in the current format
+    if let product = try? JSONDecoder().decode(ProductCard.self, from: content.content) {
+        return product
+    }
+    
+    // Fall back to legacy format if needed
+    return ProductCard(
+        id: content.parameters["id"] ?? "",
+        name: content.parameters["name"] ?? "Unknown",
+        price: Decimal(string: content.parameters["price"] ?? "0") ?? 0,
+        imageUrl: content.parameters["imageUrl"] ?? "",
+        description: String(data: content.content, encoding: .utf8) ?? "",
+        category: content.parameters["category"] ?? "General"
+    )
+}
+```
+
+## Compression
+
+Large content can be compressed before sending:
+
+```swift
+let options = SendOptions(
+    contentType: ContentTypeProductCard,
+    compression: .gzip
+)
+
+try await group.send(content: productCard, options: options)
+```
+
+The SDK automatically decompresses content on receive.
+
+## Testing Your Codec
+
+```swift
+import XCTest
+import XMTPiOS
+
+class ProductCardCodecTests: XCTestCase {
+    func testEncodeDecodeRoundtrip() throws {
+        let codec = ProductCardCodec()
+        
+        let original = ProductCard(
+            id: "test_123",
+            name: "Test Product",
+            price: 49.99,
+            imageUrl: "https://example.com/test.jpg",
+            description: "A test product",
+            category: "Test"
+        )
+        
+        // Encode
+        let encoded = try codec.encode(content: original)
+        XCTAssertEqual(encoded.type, ContentTypeProductCard)
+        
+        // Decode
+        let decoded = try codec.decode(content: encoded)
+        XCTAssertEqual(decoded.id, original.id)
+        XCTAssertEqual(decoded.name, original.name)
+        XCTAssertEqual(decoded.price, original.price)
+    }
+    
+    func testFallback() throws {
+        let codec = ProductCardCodec()
+        let product = ProductCard(
+            id: "test_123",
+            name: "Test Product",
+            price: 49.99,
+            imageUrl: "https://example.com/test.jpg",
+            description: "A test product",
+            category: "Test"
+        )
+        
+        let fallback = try codec.fallback(content: product)
+        XCTAssertNotNil(fallback)
+        XCTAssertTrue(fallback!.contains("Test Product"))
+    }
+}
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Built-in Codecs" href="/content-types/overview">
+    Explore the SDK's built-in content types
+  </Card>
+  <Card title="Sending Messages" href="/messages/send">
+    Learn about message sending options
+  </Card>
+</CardGroup>

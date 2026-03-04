@@ -1,0 +1,1002 @@
+---
+title: Group
+description: Multi-party group chat with configurable permissions
+---
+
+The `Group` struct represents a group conversation in XMTP. Groups support multiple members, customizable permissions, and rich features like disappearing messages.
+
+## Overview
+
+Groups are created via the `Conversations` interface and support:
+- Multiple members
+- Configurable permissions
+- Admin and super admin roles
+- Disappearing messages
+- Custom metadata (name, image, description)
+
+## Properties
+
+### id
+
+```swift
+public var id: String
+```
+
+The unique identifier for this group (hex-encoded).
+
+### topic
+
+```swift
+public var topic: String
+```
+
+The group's topic string for push notifications.
+
+### disappearingMessageSettings
+
+```swift
+public var disappearingMessageSettings: DisappearingMessageSettings?
+```
+
+Settings for disappearing messages, if enabled.
+
+### members
+
+```swift
+public var members: [Member] { get async throws }
+```
+
+Async property that returns all group members.
+
+### membershipState
+
+```swift
+public var membershipState: GroupMembershipState { get throws }
+```
+
+The current user's membership state in this group.
+
+Possible values:
+- `.allowed` - Active member
+- `.rejected` - Membership rejected
+- `.pending` - Pending approval
+- `.restored` - Restored membership
+- `.pendingRemove` - Pending removal
+
+### peerInboxIds
+
+```swift
+public var peerInboxIds: [InboxId] { get async throws }
+```
+
+Inbox IDs of all members except the current user.
+
+### createdAt
+
+```swift
+public var createdAt: Date
+```
+
+When the group was created.
+
+### createdAtNs
+
+```swift
+public var createdAtNs: Int64
+```
+
+Group creation timestamp in nanoseconds.
+
+### lastActivityAtNs
+
+```swift
+public var lastActivityAtNs: Int64
+```
+
+Timestamp of the last message or activity in nanoseconds.
+
+## Group Management
+
+### sync
+
+Sync the group state with the network.
+
+```swift
+func sync() async throws
+```
+
+Fetches new messages and membership updates.
+
+### isActive
+
+Check if the group is active.
+
+```swift
+func isActive() throws -> Bool
+```
+
+<ResponseField name="result" type="Bool">
+  Returns true if the group is active
+</ResponseField>
+
+### isCreator
+
+Check if the current user created this group.
+
+```swift
+func isCreator() async throws -> Bool
+```
+
+<ResponseField name="result" type="Bool">
+  Returns true if the current user is the creator
+</ResponseField>
+
+### creatorInboxId
+
+Get the inbox ID of the group creator.
+
+```swift
+func creatorInboxId() async throws -> InboxId
+```
+
+<ResponseField name="inboxId" type="InboxId">
+  The creator's inbox ID
+</ResponseField>
+
+### addedByInboxId
+
+Get the inbox ID of who added the current user.
+
+```swift
+func addedByInboxId() throws -> InboxId
+```
+
+<ResponseField name="inboxId" type="InboxId">
+  Inbox ID of the user who added you
+</ResponseField>
+
+### pausedForVersion
+
+Check if the group is paused.
+
+```swift
+func pausedForVersion() throws -> String?
+```
+
+<ResponseField name="version" type="String?">
+  Returns the minimum version required to unpause, or nil if not paused
+</ResponseField>
+
+### leaveGroup
+
+Leave the group.
+
+```swift
+func leaveGroup() async throws
+```
+
+Removes the current user from the group.
+
+## Member Management
+
+### addMembers
+
+Add members to the group by inbox IDs.
+
+```swift
+func addMembers(inboxIds: [InboxId]) async throws -> GroupMembershipResult
+```
+
+<ParamField path="inboxIds" type="[InboxId]" required>
+  Array of inbox IDs to add
+</ParamField>
+
+<ResponseField name="result" type="GroupMembershipResult">
+  Result containing successfully added members and failures
+</ResponseField>
+
+**Example:**
+
+```swift
+let result = try await group.addMembers(inboxIds: ["inbox1", "inbox2"])
+print("Added \(result.successCount) members")
+```
+
+### removeMembers
+
+Remove members from the group by inbox IDs.
+
+```swift
+func removeMembers(inboxIds: [InboxId]) async throws
+```
+
+<ParamField path="inboxIds" type="[InboxId]" required>
+  Array of inbox IDs to remove
+</ParamField>
+
+### addMembersByIdentity
+
+Add members by public identities.
+
+```swift
+func addMembersByIdentity(
+    identities: [PublicIdentity]
+) async throws -> GroupMembershipResult
+```
+
+<ParamField path="identities" type="[PublicIdentity]" required>
+  Array of public identities to add
+</ParamField>
+
+<ResponseField name="result" type="GroupMembershipResult">
+  Result containing successfully added members and failures
+</ResponseField>
+
+### removeMembersByIdentity
+
+Remove members by public identities.
+
+```swift
+func removeMembersByIdentity(
+    identities: [PublicIdentity]
+) async throws
+```
+
+<ParamField path="identities" type="[PublicIdentity]" required>
+  Array of public identities to remove
+</ParamField>
+
+## Admin Management
+
+### isAdmin
+
+Check if an inbox ID is an admin.
+
+```swift
+func isAdmin(inboxId: InboxId) throws -> Bool
+```
+
+<ParamField path="inboxId" type="InboxId" required>
+  The inbox ID to check
+</ParamField>
+
+<ResponseField name="result" type="Bool">
+  Returns true if the inbox is an admin
+</ResponseField>
+
+### isSuperAdmin
+
+Check if an inbox ID is a super admin.
+
+```swift
+func isSuperAdmin(inboxId: InboxId) throws -> Bool
+```
+
+<ParamField path="inboxId" type="InboxId" required>
+  The inbox ID to check
+</ParamField>
+
+<ResponseField name="result" type="Bool">
+  Returns true if the inbox is a super admin
+</ResponseField>
+
+### addAdmin
+
+Promote a member to admin.
+
+```swift
+func addAdmin(inboxId: InboxId) async throws
+```
+
+<ParamField path="inboxId" type="InboxId" required>
+  The inbox ID to promote
+</ParamField>
+
+### removeAdmin
+
+Remove admin privileges from a member.
+
+```swift
+func removeAdmin(inboxId: InboxId) async throws
+```
+
+<ParamField path="inboxId" type="InboxId" required>
+  The inbox ID to demote
+</ParamField>
+
+### addSuperAdmin
+
+Promote a member to super admin.
+
+```swift
+func addSuperAdmin(inboxId: InboxId) async throws
+```
+
+<ParamField path="inboxId" type="InboxId" required>
+  The inbox ID to promote
+</ParamField>
+
+### removeSuperAdmin
+
+Remove super admin privileges from a member.
+
+```swift
+func removeSuperAdmin(inboxId: InboxId) async throws
+```
+
+<ParamField path="inboxId" type="InboxId" required>
+  The inbox ID to demote
+</ParamField>
+
+### listAdmins
+
+Get all admin inbox IDs.
+
+```swift
+func listAdmins() throws -> [InboxId]
+```
+
+<ResponseField name="admins" type="[InboxId]">
+  Array of admin inbox IDs
+</ResponseField>
+
+### listSuperAdmins
+
+Get all super admin inbox IDs.
+
+```swift
+func listSuperAdmins() throws -> [InboxId]
+```
+
+<ResponseField name="superAdmins" type="[InboxId]">
+  Array of super admin inbox IDs
+</ResponseField>
+
+## Metadata
+
+### name
+
+Get the group name.
+
+```swift
+func name() throws -> String
+```
+
+<ResponseField name="name" type="String">
+  The group name
+</ResponseField>
+
+### imageUrl
+
+Get the group image URL.
+
+```swift
+func imageUrl() throws -> String
+```
+
+<ResponseField name="url" type="String">
+  The group image URL
+</ResponseField>
+
+### description
+
+Get the group description.
+
+```swift
+func description() throws -> String
+```
+
+<ResponseField name="description" type="String">
+  The group description
+</ResponseField>
+
+### appData
+
+Get application-specific data.
+
+```swift
+func appData() throws -> String
+```
+
+<ResponseField name="data" type="String">
+  Application-specific data
+</ResponseField>
+
+### updateName
+
+Update the group name.
+
+```swift
+func updateName(name: String) async throws
+```
+
+<ParamField path="name" type="String" required>
+  The new group name
+</ParamField>
+
+### updateImageUrl
+
+Update the group image URL.
+
+```swift
+func updateImageUrl(imageUrl: String) async throws
+```
+
+<ParamField path="imageUrl" type="String" required>
+  The new image URL
+</ParamField>
+
+### updateDescription
+
+Update the group description.
+
+```swift
+func updateDescription(description: String) async throws
+```
+
+<ParamField path="description" type="String" required>
+  The new description
+</ParamField>
+
+### updateAppData
+
+Update application-specific data.
+
+```swift
+func updateAppData(appData: String) async throws
+```
+
+<ParamField path="appData" type="String" required>
+  The new application data
+</ParamField>
+
+## Permissions
+
+### permissionPolicySet
+
+Get the current permission policy set.
+
+```swift
+func permissionPolicySet() throws -> PermissionPolicySet
+```
+
+<ResponseField name="policySet" type="PermissionPolicySet">
+  The current permission policies
+</ResponseField>
+
+### updateAddMemberPermission
+
+Update who can add members.
+
+```swift
+func updateAddMemberPermission(
+    newPermissionOption: PermissionOption
+) async throws
+```
+
+<ParamField path="newPermissionOption" type="PermissionOption" required>
+  The new permission setting
+</ParamField>
+
+### updateRemoveMemberPermission
+
+Update who can remove members.
+
+```swift
+func updateRemoveMemberPermission(
+    newPermissionOption: PermissionOption
+) async throws
+```
+
+<ParamField path="newPermissionOption" type="PermissionOption" required>
+  The new permission setting
+</ParamField>
+
+### updateAddAdminPermission
+
+Update who can add admins.
+
+```swift
+func updateAddAdminPermission(
+    newPermissionOption: PermissionOption
+) async throws
+```
+
+<ParamField path="newPermissionOption" type="PermissionOption" required>
+  The new permission setting
+</ParamField>
+
+### updateRemoveAdminPermission
+
+Update who can remove admins.
+
+```swift
+func updateRemoveAdminPermission(
+    newPermissionOption: PermissionOption
+) async throws
+```
+
+<ParamField path="newPermissionOption" type="PermissionOption" required>
+  The new permission setting
+</ParamField>
+
+### updateNamePermission
+
+Update who can change the group name.
+
+```swift
+func updateNamePermission(
+    newPermissionOption: PermissionOption
+) async throws
+```
+
+<ParamField path="newPermissionOption" type="PermissionOption" required>
+  The new permission setting
+</ParamField>
+
+### updateDescriptionPermission
+
+Update who can change the description.
+
+```swift
+func updateDescriptionPermission(
+    newPermissionOption: PermissionOption
+) async throws
+```
+
+<ParamField path="newPermissionOption" type="PermissionOption" required>
+  The new permission setting
+</ParamField>
+
+### updateImageUrlPermission
+
+Update who can change the group image.
+
+```swift
+func updateImageUrlPermission(
+    newPermissionOption: PermissionOption
+) async throws
+```
+
+<ParamField path="newPermissionOption" type="PermissionOption" required>
+  The new permission setting
+</ParamField>
+
+## Disappearing Messages
+
+### isDisappearingMessagesEnabled
+
+Check if disappearing messages are enabled.
+
+```swift
+func isDisappearingMessagesEnabled() throws -> Bool
+```
+
+<ResponseField name="result" type="Bool">
+  Returns true if disappearing messages are enabled
+</ResponseField>
+
+### updateDisappearingMessageSettings
+
+Update disappearing message settings.
+
+```swift
+func updateDisappearingMessageSettings(
+    _ disappearingMessageSettings: DisappearingMessageSettings?
+) async throws
+```
+
+<ParamField path="disappearingMessageSettings" type="DisappearingMessageSettings?" required>
+  New settings, or nil to disable
+</ParamField>
+
+### clearDisappearingMessageSettings
+
+Disable disappearing messages.
+
+```swift
+func clearDisappearingMessageSettings() async throws
+```
+
+## Sending Messages
+
+### send
+
+Send a message to the group.
+
+```swift
+func send<T>(
+    content: T,
+    options: SendOptions? = nil
+) async throws -> String
+```
+
+<ParamField path="content" type="T" required>
+  The content to send (type depends on registered codecs)
+</ParamField>
+
+<ParamField path="options" type="SendOptions">
+  Optional send options (content type, compression)
+</ParamField>
+
+<ResponseField name="messageId" type="String">
+  The hex-encoded message ID
+</ResponseField>
+
+**Example:**
+
+```swift
+let messageId = try await group.send(
+    content: "Hello, group!",
+    options: SendOptions()
+)
+```
+
+### send (encoded)
+
+Send pre-encoded content.
+
+```swift
+func send(
+    encodedContent: EncodedContent,
+    visibilityOptions: MessageVisibilityOptions? = nil
+) async throws -> String
+```
+
+<ParamField path="encodedContent" type="EncodedContent" required>
+  Pre-encoded message content
+</ParamField>
+
+<ParamField path="visibilityOptions" type="MessageVisibilityOptions">
+  Visibility options (push notifications, etc.)
+</ParamField>
+
+<ResponseField name="messageId" type="String">
+  The hex-encoded message ID
+</ResponseField>
+
+### prepareMessage
+
+Prepare a message for sending.
+
+```swift
+func prepareMessage<T>(
+    content: T,
+    options: SendOptions? = nil,
+    noSend: Bool = false
+) async throws -> String
+```
+
+<ParamField path="content" type="T" required>
+  The content to prepare
+</ParamField>
+
+<ParamField path="options" type="SendOptions">
+  Optional send options
+</ParamField>
+
+<ParamField path="noSend" type="Bool">
+  If true, prepare without sending (default: false)
+</ParamField>
+
+<ResponseField name="messageId" type="String">
+  The hex-encoded message ID
+</ResponseField>
+
+### publishMessages
+
+Publish all prepared messages.
+
+```swift
+func publishMessages() async throws
+```
+
+Sends all messages prepared with `noSend: true`.
+
+### publishMessage
+
+Publish a specific prepared message.
+
+```swift
+func publishMessage(messageId: String) async throws
+```
+
+<ParamField path="messageId" type="String" required>
+  The hex-encoded message ID to publish
+</ParamField>
+
+## Reading Messages
+
+### messages
+
+Get messages from the group.
+
+```swift
+func messages(
+    beforeNs: Int64? = nil,
+    afterNs: Int64? = nil,
+    limit: Int? = nil,
+    direction: SortDirection? = .descending,
+    deliveryStatus: MessageDeliveryStatus = .all,
+    excludeContentTypes: [StandardContentType]? = nil,
+    excludeSenderInboxIds: [String]? = nil,
+    sortBy: MessageSortBy? = nil,
+    insertedAfterNs: Int64? = nil,
+    insertedBeforeNs: Int64? = nil
+) async throws -> [DecodedMessage]
+```
+
+<ParamField path="beforeNs" type="Int64">
+  Filter messages before this timestamp (nanoseconds)
+</ParamField>
+
+<ParamField path="afterNs" type="Int64">
+  Filter messages after this timestamp (nanoseconds)
+</ParamField>
+
+<ParamField path="limit" type="Int">
+  Maximum number of messages to return
+</ParamField>
+
+<ParamField path="direction" type="SortDirection">
+  Sort direction: `.ascending` or `.descending` (default)
+</ParamField>
+
+<ParamField path="deliveryStatus" type="MessageDeliveryStatus">
+  Filter by delivery status: `.all`, `.published`, `.unpublished`, `.failed`
+</ParamField>
+
+<ParamField path="excludeContentTypes" type="[StandardContentType]">
+  Content types to exclude
+</ParamField>
+
+<ParamField path="excludeSenderInboxIds" type="[String]">
+  Sender inbox IDs to exclude
+</ParamField>
+
+<ParamField path="sortBy" type="MessageSortBy">
+  Sort field (sent time or inserted time)
+</ParamField>
+
+<ParamField path="insertedAfterNs" type="Int64">
+  Filter by local insertion time
+</ParamField>
+
+<ParamField path="insertedBeforeNs" type="Int64">
+  Filter by local insertion time
+</ParamField>
+
+<ResponseField name="messages" type="[DecodedMessage]">
+  Array of decoded messages
+</ResponseField>
+
+<Note>
+This returns raw messages without enriched metadata. For UI rendering, use `enrichedMessages()` instead.
+</Note>
+
+### enrichedMessages
+
+Get messages with enriched metadata.
+
+```swift
+func enrichedMessages(
+    beforeNs: Int64? = nil,
+    afterNs: Int64? = nil,
+    limit: Int? = nil,
+    direction: SortDirection? = .descending,
+    deliveryStatus: MessageDeliveryStatus = .all,
+    excludeContentTypes: [StandardContentType]? = nil,
+    excludeSenderInboxIds: [String]? = nil,
+    sortBy: MessageSortBy? = nil,
+    insertedAfterNs: Int64? = nil,
+    insertedBeforeNs: Int64? = nil
+) async throws -> [DecodedMessageV2]
+```
+
+Parameters are the same as `messages()` method.
+
+<ResponseField name="messages" type="[DecodedMessageV2]">
+  Array of messages with reactions, replies, and metadata "baked in"
+</ResponseField>
+
+<Tip>
+Recommended for UI rendering. This method provides better performance and simpler code than fetching reactions and replies separately.
+</Tip>
+
+### lastMessage
+
+Get the most recent message.
+
+```swift
+func lastMessage() async throws -> DecodedMessage?
+```
+
+<ResponseField name="message" type="DecodedMessage?">
+  The last message, or nil if none
+</ResponseField>
+
+### countMessages
+
+Count messages matching filters.
+
+```swift
+func countMessages(
+    beforeNs: Int64? = nil,
+    afterNs: Int64? = nil,
+    deliveryStatus: MessageDeliveryStatus = .all,
+    excludeContentTypes: [StandardContentType]? = nil,
+    excludeSenderInboxIds: [String]? = nil,
+    insertedAfterNs: Int64? = nil,
+    insertedBeforeNs: Int64? = nil
+) throws -> Int64
+```
+
+<ResponseField name="count" type="Int64">
+  Number of messages matching the filters
+</ResponseField>
+
+### deleteMessage
+
+Delete a message by ID.
+
+```swift
+func deleteMessage(messageId: String) async throws -> String
+```
+
+<ParamField path="messageId" type="String" required>
+  The hex-encoded message ID to delete
+</ParamField>
+
+<ResponseField name="deletionId" type="String">
+  The hex-encoded ID of the deletion message
+</ResponseField>
+
+<Warning>
+You can only delete your own messages. Attempting to delete another user's message will throw an error.
+</Warning>
+
+## Streaming
+
+### streamMessages
+
+Stream new messages as they arrive.
+
+```swift
+func streamMessages(
+    onClose: (() -> Void)? = nil
+) -> AsyncThrowingStream<DecodedMessage, Error>
+```
+
+<ParamField path="onClose" type="(() -> Void)?">
+  Optional callback when stream closes
+</ParamField>
+
+<ResponseField name="stream" type="AsyncThrowingStream<DecodedMessage, Error>">
+  Stream of new messages
+</ResponseField>
+
+**Example:**
+
+```swift
+for try await message in group.streamMessages() {
+    print("New message: \(message.content())")
+}
+```
+
+### endStream
+
+Stop the message stream.
+
+```swift
+func endStream()
+```
+
+## Consent
+
+### updateConsentState
+
+Update consent state for this group.
+
+```swift
+func updateConsentState(state: ConsentState) async throws
+```
+
+<ParamField path="state" type="ConsentState" required>
+  The new consent state
+</ParamField>
+
+### consentState
+
+Get the current consent state.
+
+```swift
+func consentState() throws -> ConsentState
+```
+
+<ResponseField name="state" type="ConsentState">
+  The current consent state
+</ResponseField>
+
+## Utilities
+
+### processMessage
+
+Process a streamed message envelope.
+
+```swift
+func processMessage(messageBytes: Data) async throws -> DecodedMessage?
+```
+
+<ParamField path="messageBytes" type="Data" required>
+  Raw message envelope bytes
+</ParamField>
+
+<ResponseField name="message" type="DecodedMessage?">
+  The decoded message, if valid
+</ResponseField>
+
+### commitLogForkStatus
+
+Check if the group's commit log has forked.
+
+```swift
+func commitLogForkStatus() -> CommitLogForkStatus
+```
+
+<ResponseField name="status" type="CommitLogForkStatus">
+  Fork status: `.unknown`, `.notForked`, or `.forked`
+</ResponseField>
+
+### getHmacKeys
+
+Get HMAC keys for push notifications.
+
+```swift
+func getHmacKeys() throws -> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse
+```
+
+<ResponseField name="response" type="Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse">
+  HMAC keys for this group
+</ResponseField>
+
+### getPushTopics
+
+Get push notification topics.
+
+```swift
+func getPushTopics() throws -> [String]
+```
+
+<ResponseField name="topics" type="[String]">
+  Array of push notification topic strings
+</ResponseField>
+
+### getDebugInformation
+
+Get debug information about the group.
+
+```swift
+func getDebugInformation() async throws -> ConversationDebugInfo
+```
+
+<ResponseField name="info" type="ConversationDebugInfo">
+  Debug information about the group state
+</ResponseField>
+
+### getLastReadTimes
+
+Get last read timestamps.
+
+```swift
+func getLastReadTimes() throws -> [String: Int64]
+```
+
+<ResponseField name="times" type="[String: Int64]">
+  Dictionary mapping identifiers to last read timestamps
+</ResponseField>
+
+## See Also
+
+- [Conversations](/api/conversations)
+- [Dm](/api/dm)
+- [Client](/api/client)

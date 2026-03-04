@@ -1,0 +1,165 @@
+---
+title: Introduction
+description: Learn about the XMTP iOS SDK and how to build secure messaging into your iOS applications
+---
+
+## What is XMTP?
+
+XMTP (Extensible Message Transport Protocol) is an open protocol and network for secure, private messaging between blockchain accounts. The XMTP iOS SDK provides a Swift implementation that enables you to build powerful messaging features directly into your iOS applications.
+
+With XMTP, you can send messages between blockchain accounts, including:
+
+- Direct messages (DMs) between users
+- Group conversations with multiple participants
+- Rich content types (text, attachments, reactions, replies)
+- End-to-end encrypted communications using MLS (Message Layer Security)
+- Push notifications for real-time messaging
+
+## Key Features
+
+### Secure by Design
+
+XMTP uses Message Layer Security (MLS) protocol to provide end-to-end encryption for all messages. Each client generates its own encryption keys, ensuring that messages can only be read by intended recipients.
+
+### Blockchain Account Messaging
+
+Send messages to any Ethereum address or other supported blockchain accounts. No need for phone numbers, email addresses, or centralized identity systems.
+
+### Rich Content Support
+
+The SDK includes built-in codecs for multiple content types:
+
+- Text messages
+- File attachments
+- Remote attachments
+- Reactions
+- Replies
+- Read receipts
+- Transaction references
+
+You can also create custom content types for your specific use cases.
+
+### Cross-Device Sync
+
+Messages and conversations sync seamlessly across multiple devices using the same wallet account. History sync ensures users have access to their conversation history on new installations.
+
+### Group Conversations
+
+Create and manage group conversations with multiple participants, including:
+
+- Custom permissions and admin controls
+- Member management (add/remove)
+- Group metadata (name, description, image)
+- Disappearing messages
+
+### Direct Messages
+
+One-on-one conversations with other XMTP users, supporting all the rich content types and features of group conversations.
+
+## Protocol Version
+
+<Warning>
+  XMTP V2 is deprecated as of May 1, 2025. This SDK (v4.0.3+) uses XMTP V3 with MLS-based encryption for enhanced security and decentralization.
+</Warning>
+
+The XMTP iOS SDK v4+ exclusively uses the V3 protocol, which provides:
+
+- Better security with Message Layer Security (MLS)
+- Improved scalability and performance
+- Support for decentralized infrastructure
+- Enhanced group messaging capabilities
+
+## Prerequisites
+
+Before you start building with the XMTP iOS SDK, ensure your development environment meets these requirements:
+
+### Platform Requirements
+
+- **iOS 14.0** or later
+- **macOS 11.0** or later (for macOS apps)
+- **Swift 5.6** or later
+- **Xcode 13** or later
+
+### Dependencies
+
+The SDK automatically manages these dependencies through Swift Package Manager:
+
+- Connect-Swift (1.2.0) - gRPC connectivity
+- CryptoSwift (1.8.4+) - Cryptographic utilities
+- LibXMTPSwiftFFI (1.9.0) - Core XMTP protocol implementation in Rust
+
+### Development Knowledge
+
+Familiarity with:
+
+- Swift and SwiftUI or UIKit
+- Async/await concurrency in Swift
+- Blockchain wallets and signing (basic understanding)
+
+## Architecture Overview
+
+The XMTP iOS SDK is built with several core components:
+
+**Client** - The main entry point for all XMTP functionality. Manages API connections, authentication, and inbox management.
+
+**Conversations** - Handle listing, creating, and managing both group chats and direct messages.
+
+**Codecs** - Extensible content type system that allows encoding/decoding different message types.
+
+**LibXMTP** - Rust-based core library providing cryptographic operations and MLS protocol implementation.
+
+## Database Encryption
+
+<Note>
+  The SDK requires a database encryption key for storing conversations and messages locally. This key must be securely generated and stored by your application.
+</Note>
+
+All conversation data is stored in an encrypted local database. You must provide an encryption key when creating a client:
+
+```swift
+import Foundation
+
+// Generate a secure random encryption key
+let encryptionKey = try secureRandomBytes(count: 32)
+
+// Store this key securely (e.g., in Keychain)
+// You'll need the same key to access the database later
+```
+
+## Network Environments
+
+XMTP provides multiple network environments:
+
+- **Development** (`.dev`) - For testing and development
+- **Production** (`.production`) - For live applications
+- **Local** (`.local`) - For local development with Docker
+
+Start with the `.dev` environment while building your application, then switch to `.production` when ready to launch.
+
+## Next Steps
+
+Ready to start building? Follow these guides:
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install the XMTP iOS SDK using Swift Package Manager or CocoaPods
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first messaging app with a complete working example
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [XMTP iOS SDK GitHub Repository](https://github.com/xmtp/xmtp-ios)
+- [iOS SDK Reference Documentation](https://xmtp.github.io/xmtp-ios/)
+- [XMTP Community Forums](https://community.xmtp.org/)
+- [Example Application](https://github.com/xmtp/xmtp-ios/tree/main/example)
+
+## Getting Help
+
+If you need assistance:
+
+- Check the [GitHub Issues](https://github.com/xmtp/xmtp-ios/issues) for known issues and solutions
+- Ask questions in the [XMTP Community Forums](https://community.xmtp.org/)
+- Review the [example application](https://github.com/xmtp/xmtp-ios/tree/main/example) for implementation patterns

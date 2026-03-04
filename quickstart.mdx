@@ -1,80 +1,590 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Build your first XMTP messaging feature in minutes with this step-by-step guide
 ---
 
-## Get started in three steps
+This quickstart guide will walk you through creating an XMTP client, checking if an address can receive messages, creating a conversation, and sending your first message.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, make sure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+- Completed the [Installation](/installation) steps
+- A basic understanding of Swift and async/await
+- An iOS 14+ or macOS 11+ development environment
+
+## Import XMTP
+
+First, import the XMTP SDK in your Swift file:
+
+```swift
+import XMTPiOS
+import Foundation
+```
+
+## Step 1: Generate or Use a Wallet
+
+<Steps>
+  <Step title="Generate a new wallet for testing">
+    For development and testing, you can generate a new wallet using the SDK's built-in functionality:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```swift
+    import XMTPiOS
+
+    // Generate a new private key
+    let wallet = try PrivateKey.generate()
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    // Get the wallet address
+    let walletAddress = wallet.identity.identifier
+    print("Wallet address: \(walletAddress)")
+    ```
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    <Note>
+      `PrivateKey.generate()` creates a secp256k1 private key suitable for Ethereum-compatible wallets. The wallet conforms to the `SigningKey` protocol and can be used directly with XMTP.
+    </Note>
+  </Step>
+  
+  <Step title="Or use an existing wallet">
+    If you already have wallet integration (e.g., WalletConnect, MetaMask), you can implement the `SigningKey` protocol:
+    
+    ```swift
+    import XMTPiOS
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    // Your custom wallet implementation
+    class MyWallet: SigningKey {
+        var identity: PublicIdentity {
+            PublicIdentity(
+                kind: .ethereum,
+                identifier: "0x1234..." // Your wallet address
+            )
+        }
+        
+        func sign(_ message: String) async throws -> SignedData {
+            // Call your wallet's signing method
+            // Return the signature as SignedData
+        }
+    }
+    ```
+  </Step>
+</Steps>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+## Step 2: Create Database Encryption Key
 
-### Step 3: Go live
+XMTP requires an encryption key to secure local conversation data:
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+```swift
+import Foundation
 
-## Next steps
+// Generate a secure random 32-byte encryption key
+let encryptionKey = try secureRandomBytes(count: 32)
 
-Now that you have your docs running, explore these key features:
+// IMPORTANT: Store this key securely!
+// For production apps, save to Keychain:
+// - You need the same key to access the database later
+// - Losing this key means losing access to message history
+```
 
-<CardGroup cols={2}>
+<Warning>
+  In production applications, store the encryption key in the iOS Keychain. Never hardcode the key or store it in UserDefaults. If the key is lost, the user's message history cannot be recovered.
+</Warning>
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+## Step 3: Create an XMTP Client
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+Create a client to connect to the XMTP network:
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+```swift
+import XMTPiOS
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+// Create client with your wallet and options
+let client = try await Client.create(
+    account: wallet,
+    options: ClientOptions(
+        api: ClientOptions.Api(
+            env: .dev,  // Use .production for live apps
+            isSecure: true
+        ),
+        dbEncryptionKey: encryptionKey
+    )
+)
 
-</CardGroup>
+print("Client created!")
+print("Inbox ID: \(client.inboxID)")
+print("Installation ID: \(client.installationID)")
+```
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  The `Client.create()` method handles wallet authentication and client registration automatically. The user will need to sign a message to prove ownership of their wallet.
 </Note>
+
+### Client Options Explained
+
+Here's a more detailed example with common options:
+
+```swift
+import XMTPiOS
+
+let options = ClientOptions(
+    api: ClientOptions.Api(
+        env: .dev,              // .dev for testing, .production for live apps
+        isSecure: true,         // Always true except for local development
+        appVersion: "1.0.0"     // Optional: Your app version
+    ),
+    codecs: [],                 // Register custom content codecs here
+    dbEncryptionKey: encryptionKey,
+    dbDirectory: nil,           // Optional: Custom database location
+    historySyncUrl: nil,        // Optional: Custom history sync URL
+    deviceSyncEnabled: true,    // Enable syncing across devices
+    debugEventsEnabled: false   // Enable for debugging
+)
+
+let client = try await Client.create(
+    account: wallet,
+    options: options
+)
+```
+
+## Step 4: Check if an Address Can Receive Messages
+
+Before starting a conversation, verify that the recipient address is registered on XMTP:
+
+```swift
+import XMTPiOS
+
+// Single address check
+let peerAddress = "0x1234567890abcdef1234567890abcdef12345678"
+let peerIdentity = PublicIdentity(
+    kind: .ethereum,
+    identifier: peerAddress
+)
+
+let canMessage = try await client.canMessage(identity: peerIdentity)
+
+if canMessage {
+    print("✓ Address can receive messages")
+} else {
+    print("✗ Address is not registered on XMTP")
+}
+```
+
+<Note>
+  An address can only receive XMTP messages if they've created an XMTP client at least once. Sending messages to unregistered addresses will fail.
+</Note>
+
+### Check Multiple Addresses
+
+You can also check multiple addresses at once:
+
+```swift
+import XMTPiOS
+
+let addresses = [
+    PublicIdentity(kind: .ethereum, identifier: "0xAddress1..."),
+    PublicIdentity(kind: .ethereum, identifier: "0xAddress2..."),
+    PublicIdentity(kind: .ethereum, identifier: "0xAddress3...")
+]
+
+let results = try await client.canMessage(identities: addresses)
+
+for (address, canMessage) in results {
+    print("\(address): \(canMessage ? "✓" : "✗")")
+}
+```
+
+## Step 5: Create a Conversation
+
+XMTP supports two types of conversations: direct messages (DMs) and group chats.
+
+### Create a Direct Message (DM)
+
+```swift
+import XMTPiOS
+
+// Create a DM with another user
+let peerIdentity = PublicIdentity(
+    kind: .ethereum,
+    identifier: "0x1234567890abcdef1234567890abcdef12345678"
+)
+
+// Create or find existing DM
+let dm = try await client.conversations.findOrCreateDmWithIdentity(
+    with: peerIdentity
+)
+
+print("DM created with ID: \(dm.id)")
+```
+
+### Create a Group Conversation
+
+```swift
+import XMTPiOS
+
+// Create a group with multiple members
+let memberAddresses = [
+    PublicIdentity(kind: .ethereum, identifier: "0xAddress1..."),
+    PublicIdentity(kind: .ethereum, identifier: "0xAddress2..."),
+    PublicIdentity(kind: .ethereum, identifier: "0xAddress3...")
+]
+
+let group = try await client.conversations.newGroupWithIdentities(
+    with: memberAddresses,
+    permissions: .allMembers,
+    name: "My First Group",
+    imageUrl: "https://example.com/group-image.png",
+    description: "A group for XMTP testing"
+)
+
+print("Group created with ID: \(group.id)")
+```
+
+## Step 6: Send a Message
+
+Now you can send messages to your conversation:
+
+### Send a Text Message
+
+```swift
+import XMTPiOS
+
+// Send a text message
+let messageId = try await dm.send(content: "Hello from XMTP!")
+
+print("Message sent with ID: \(messageId)")
+```
+
+### Send to a Group
+
+```swift
+import XMTPiOS
+
+// Send a message to the group
+let messageId = try await group.send(content: "Hello, everyone!")
+
+print("Group message sent with ID: \(messageId)")
+```
+
+## Step 7: List Conversations
+
+Retrieve all conversations for the current user:
+
+```swift
+import XMTPiOS
+
+// List all conversations (DMs and groups)
+let conversations = try await client.conversations.list()
+
+print("Found \(conversations.count) conversations")
+
+for conversation in conversations {
+    switch conversation {
+    case .dm(let dm):
+        let members = try await dm.members
+        let peer = members.first { $0.inboxId != client.inboxID }
+        print("DM with: \(peer?.addresses.first ?? "Unknown")")
+        
+    case .group(let group):
+        print("Group: \(group.name) (\(try await group.members.count) members)")
+    }
+}
+```
+
+## Step 8: Retrieve Messages
+
+Fetch messages from a conversation:
+
+```swift
+import XMTPiOS
+
+// Get messages from a conversation
+let messages = try await conversation.messages(
+    limit: 50,
+    direction: .descending
+)
+
+print("Retrieved \(messages.count) messages")
+
+for message in messages {
+    // Get text content
+    if let text: String = try? message.content() {
+        print("[\(message.senderInboxId)]: \(text)")
+    }
+}
+```
+
+### Using Enriched Messages
+
+For better UI performance, use enriched messages that include reactions and replies:
+
+```swift
+import XMTPiOS
+
+// Get messages with reactions and replies included
+let enrichedMessages = try await conversation.enrichedMessages(
+    limit: 50,
+    direction: .descending
+)
+
+for message in enrichedMessages {
+    if let text: String = try? message.content() {
+        print("[\(message.senderInboxId)]: \(text)")
+        
+        // Access reactions directly
+        print("  Reactions: \(message.reactions.count)")
+        
+        // Check if it's a reply
+        if let reply = message.reply {
+            print("  Replying to: \(reply.originalMessageId)")
+        }
+    }
+}
+```
+
+## Step 9: Stream Real-Time Messages
+
+Listen for new messages in real-time:
+
+```swift
+import XMTPiOS
+
+// Stream messages from a conversation
+Task {
+    for try await message in conversation.streamMessages() {
+        if let text: String = try? message.content() {
+            print("New message: \(text)")
+        }
+    }
+}
+```
+
+### Stream All Conversations
+
+You can also listen for new conversations:
+
+```swift
+import XMTPiOS
+
+// Stream new conversations
+Task {
+    for try await conversation in client.conversations.stream() {
+        switch conversation {
+        case .dm(let dm):
+            print("New DM conversation created")
+        case .group(let group):
+            print("New group: \(group.name)")
+        }
+    }
+}
+```
+
+## Complete Example
+
+Here's a complete working example that ties everything together:
+
+```swift
+import XMTPiOS
+import Foundation
+
+class XMTPExample {
+    var client: Client?
+    
+    func setup() async throws {
+        // Step 1: Generate wallet
+        let wallet = try PrivateKey.generate()
+        print("Generated wallet: \(wallet.identity.identifier)")
+        
+        // Step 2: Create encryption key
+        let encryptionKey = try secureRandomBytes(count: 32)
+        // In production: Store in Keychain!
+        
+        // Step 3: Create client
+        client = try await Client.create(
+            account: wallet,
+            options: ClientOptions(
+                api: ClientOptions.Api(env: .dev, isSecure: true),
+                dbEncryptionKey: encryptionKey
+            )
+        )
+        
+        print("Client created with inbox ID: \(client!.inboxID)")
+    }
+    
+    func startConversation(with peerAddress: String) async throws {
+        guard let client = client else {
+            throw NSError(domain: "XMTP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Client not initialized"])
+        }
+        
+        // Step 4: Check if peer can receive messages
+        let peerIdentity = PublicIdentity(kind: .ethereum, identifier: peerAddress)
+        let canMessage = try await client.canMessage(identity: peerIdentity)
+        
+        guard canMessage else {
+            print("Peer address is not registered on XMTP")
+            return
+        }
+        
+        // Step 5: Create conversation
+        let dm = try await client.conversations.findOrCreateDmWithIdentity(
+            with: peerIdentity
+        )
+        
+        // Step 6: Send message
+        let messageId = try await dm.send(content: "Hello from XMTP iOS SDK!")
+        print("Message sent: \(messageId)")
+        
+        // Step 7 & 8: Retrieve messages
+        let messages = try await dm.messages(limit: 10)
+        print("Retrieved \(messages.count) messages")
+        
+        // Step 9: Stream new messages
+        Task {
+            for try await message in dm.streamMessages() {
+                if let text: String = try? message.content() {
+                    print("New message received: \(text)")
+                }
+            }
+        }
+    }
+}
+
+// Usage
+Task {
+    let example = XMTPExample()
+    try await example.setup()
+    try await example.startConversation(with: "0x1234567890abcdef1234567890abcdef12345678")
+}
+```
+
+## SwiftUI Integration Example
+
+Here's how to integrate XMTP into a SwiftUI app:
+
+```swift
+import SwiftUI
+import XMTPiOS
+
+struct MessagingView: View {
+    @State private var client: Client?
+    @State private var messages: [DecodedMessage] = []
+    @State private var newMessageText = ""
+    
+    let conversation: Conversation
+    
+    var body: some View {
+        VStack {
+            // Message list
+            ScrollView {
+                ForEach(messages, id: \.id) { message in
+                    MessageRow(message: message)
+                }
+            }
+            
+            // Input field
+            HStack {
+                TextField("Type a message...", text: $newMessageText)
+                    .textFieldStyle(.roundedBorder)
+                
+                Button("Send") {
+                    Task {
+                        try await sendMessage()
+                    }
+                }
+                .disabled(newMessageText.isEmpty)
+            }
+            .padding()
+        }
+        .task {
+            await loadMessages()
+            await streamNewMessages()
+        }
+    }
+    
+    func loadMessages() async {
+        do {
+            messages = try await conversation.messages(limit: 50)
+        } catch {
+            print("Error loading messages: \(error)")
+        }
+    }
+    
+    func sendMessage() async throws {
+        let text = newMessageText
+        newMessageText = ""
+        
+        _ = try await conversation.send(content: text)
+    }
+    
+    func streamNewMessages() async {
+        do {
+            for try await message in conversation.streamMessages() {
+                await MainActor.run {
+                    messages.insert(message, at: 0)
+                }
+            }
+        } catch {
+            print("Stream error: \(error)")
+        }
+    }
+}
+
+struct MessageRow: View {
+    let message: DecodedMessage
+    
+    var body: some View {
+        HStack {
+            if let text: String = try? message.content() {
+                VStack(alignment: .leading) {
+                    Text(message.senderInboxId)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Text(text)
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 4)
+    }
+}
+```
+
+## Next Steps
+
+Now that you've built your first XMTP messaging feature, explore more advanced capabilities:
+
+<CardGroup cols={2}>
+  <Card title="Group Conversations" icon="users" href="/conversations/groups">
+    Learn about group management, permissions, and member controls
+  </Card>
+  <Card title="Content Types" icon="file" href="/content-types">
+    Send rich content like images, files, reactions, and replies
+  </Card>
+  <Card title="Push Notifications" icon="bell" href="/notifications">
+    Enable real-time push notifications for your messaging app
+  </Card>
+  <Card title="Best Practices" icon="star" href="/best-practices">
+    Security, performance, and user experience tips
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### "Invalid signature" errors
+
+Ensure your wallet's `sign()` method returns a properly formatted Ethereum signature. The signature should be 65 bytes with the recovery byte (v) at the end.
+
+### "Database encryption key required" error
+
+Make sure you're passing a valid 32-byte encryption key when creating the client.
+
+### "Address not registered" errors
+
+The recipient address must have created an XMTP client at least once before they can receive messages. Direct them to create an XMTP account first.
+
+### Messages not streaming
+
+Ensure your app stays alive and the Task doesn't get cancelled. For background streaming, you may need to implement proper background task handling.
+
+## Additional Resources
+
+- [Example Application](https://github.com/xmtp/xmtp-ios/tree/main/example) - Full working example with SwiftUI
+- [API Reference](https://xmtp.github.io/xmtp-ios/) - Complete SDK documentation
+- [XMTP Community](https://community.xmtp.org/) - Get help and share feedback

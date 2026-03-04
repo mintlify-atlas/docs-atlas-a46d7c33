@@ -1,0 +1,300 @@
+---
+title: Installation
+description: Install the XMTP iOS SDK in your iOS or macOS project
+---
+
+The XMTP iOS SDK can be installed using Swift Package Manager or CocoaPods. Swift Package Manager is the recommended approach for most projects.
+
+## Platform Support
+
+The XMTP iOS SDK supports:
+
+- **iOS 14.0** and later
+- **macOS 11.0** and later
+- **Swift 5.6** and later
+
+## Swift Package Manager (Recommended)
+
+Swift Package Manager is Apple's official dependency manager and provides the best integration with Xcode.
+
+### Add via Xcode
+
+<Steps>
+  <Step title="Open your project in Xcode">
+    Open your existing Xcode project or create a new one.
+  </Step>
+  
+  <Step title="Add Package Dependency">
+    1. Go to **File** > **Add Package Dependencies...**
+    2. In the search bar, enter the XMTP iOS SDK repository URL:
+    
+    ```
+    https://github.com/xmtp/xmtp-ios
+    ```
+    
+    3. Select the repository when it appears in the search results
+  </Step>
+  
+  <Step title="Choose Version">
+    Select the version rule for the package:
+    
+    - **Up to Next Major Version**: Recommended for most projects (e.g., 4.9.0 < 5.0.0)
+    - **Exact Version**: If you need a specific version
+    - **Branch**: For testing development versions (not recommended for production)
+    
+    Click **Add Package**
+  </Step>
+  
+  <Step title="Select Target">
+    Choose the target(s) where you want to use XMTP and click **Add Package**.
+    
+    Xcode will download the package and its dependencies.
+  </Step>
+</Steps>
+
+### Add via Package.swift
+
+If you're building a Swift package or prefer to manually edit `Package.swift`:
+
+```swift Package.swift
+import PackageDescription
+
+let package = Package(
+    name: "YourPackage",
+    platforms: [
+        .iOS(.v14),
+        .macOS(.v11)
+    ],
+    products: [
+        .library(
+            name: "YourPackage",
+            targets: ["YourPackage"]
+        )
+    ],
+    dependencies: [
+        .package(
+            url: "https://github.com/xmtp/xmtp-ios",
+            from: "4.9.0"
+        )
+    ],
+    targets: [
+        .target(
+            name: "YourPackage",
+            dependencies: [
+                .product(name: "XMTPiOS", package: "xmtp-ios")
+            ]
+        )
+    ]
+)
+```
+
+Then run:
+
+```bash
+swift build
+```
+
+## CocoaPods
+
+If your project uses CocoaPods, you can add XMTP to your `Podfile`.
+
+<Steps>
+  <Step title="Create or open your Podfile">
+    If you don't have a Podfile yet, create one in your project root:
+    
+    ```bash
+    pod init
+    ```
+  </Step>
+  
+  <Step title="Add XMTP to your Podfile">
+    ```ruby Podfile
+    platform :ios, '14.0'
+    use_frameworks!
+
+    target 'YourApp' do
+      pod 'XMTP', '~> 4.9.0'
+    end
+    ```
+  </Step>
+  
+  <Step title="Install dependencies">
+    Run the following command in your project directory:
+    
+    ```bash
+    pod install
+    ```
+    
+    <Note>
+      After running `pod install`, always open your project using the `.xcworkspace` file, not the `.xcodeproj` file.
+    </Note>
+  </Step>
+</Steps>
+
+### CocoaPods Dependencies
+
+When using CocoaPods, XMTP automatically installs these dependencies:
+
+- **Connect-Swift** (~1.2.0) - gRPC connectivity
+- **CryptoSwift** (1.8.3) - Cryptographic operations
+- **SQLCipher** (4.5.7) - Encrypted database
+- **LibXMTPSwiftFFI.xcframework** - Core XMTP protocol implementation
+
+## Dependency Details
+
+The XMTP iOS SDK relies on several key dependencies:
+
+### LibXMTPSwiftFFI
+
+The core XMTP protocol implementation written in Rust, compiled to a binary framework. This provides:
+
+- MLS (Message Layer Security) protocol implementation
+- Cryptographic operations
+- Database operations with encryption
+- Network communication with XMTP nodes
+
+Current version: **1.9.0-rc5**
+
+### Connect-Swift
+
+gRPC client library for communicating with XMTP network nodes.
+
+Version: **1.2.0**
+
+### CryptoSwift
+
+Swift library providing additional cryptographic utilities.
+
+Version: **1.8.4+** (SPM) or **1.8.3** (CocoaPods)
+
+## Verify Installation
+
+After installation, verify that everything is set up correctly by importing XMTP in your Swift file:
+
+```swift
+import XMTPiOS
+
+// Verify the SDK version
+let version = getVersionInfo()
+print("XMTP SDK version: \(version)")
+```
+
+If the import succeeds and you can access XMTP types, your installation is complete.
+
+## Import Statement
+
+In any Swift file where you want to use XMTP, add the import statement:
+
+```swift
+import XMTPiOS
+```
+
+For SwiftUI views:
+
+```swift
+import SwiftUI
+import XMTPiOS
+```
+
+## Updating the SDK
+
+### Swift Package Manager
+
+<Steps>
+  <Step title="Check for updates">
+    In Xcode, go to **File** > **Packages** > **Update to Latest Package Versions**
+  </Step>
+  
+  <Step title="Review changes">
+    Check the [release notes](https://github.com/xmtp/xmtp-ios/releases) for breaking changes before updating to a new major version.
+  </Step>
+</Steps>
+
+### CocoaPods
+
+```bash
+pod update XMTP
+```
+
+<Warning>
+  Always review the [changelog](https://github.com/xmtp/xmtp-ios/releases) before updating, especially for major version changes. Breaking changes are documented in release notes.
+</Warning>
+
+## Troubleshooting
+
+### Swift Package Manager Issues
+
+**Problem**: Xcode can't resolve package dependencies
+
+**Solution**: 
+1. Go to **File** > **Packages** > **Reset Package Caches**
+2. Clean build folder (**Product** > **Clean Build Folder**)
+3. Restart Xcode
+
+**Problem**: Build fails with "Missing required module"
+
+**Solution**: Ensure your deployment target is set to iOS 14.0 or later in your project settings.
+
+### CocoaPods Issues
+
+**Problem**: `pod install` fails
+
+**Solution**:
+```bash
+# Update CocoaPods repo
+pod repo update
+
+# Try installing again
+pod install
+```
+
+**Problem**: "The platform of the target is not compatible"
+
+**Solution**: Ensure your `Podfile` specifies iOS 14.0 or later:
+```ruby
+platform :ios, '14.0'
+```
+
+### Build Errors
+
+**Problem**: Errors related to LibXMTPSwiftFFI
+
+**Solution**: The LibXMTPSwiftFFI binary framework may not have been downloaded correctly. Try:
+
+1. Delete your `DerivedData` folder
+2. Clean build folder
+3. Rebuild the project
+
+For Swift Package Manager:
+```bash
+rm -rf ~/Library/Developer/Xcode/DerivedData
+```
+
+## Platform-Specific Considerations
+
+### iOS
+
+No additional configuration required. The SDK works out of the box on iOS 14.0+.
+
+### macOS
+
+For macOS applications, ensure your deployment target is set to macOS 11.0 or later.
+
+### Catalyst
+
+macOS Catalyst apps are supported. The SDK will automatically use the appropriate binary for the platform.
+
+## Next Steps
+
+Now that you have XMTP installed, you're ready to build your first messaging feature:
+
+<Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+  Follow our quickstart guide to create a client, send your first message, and explore core features
+</Card>
+
+## Additional Resources
+
+- [XMTP iOS SDK on GitHub](https://github.com/xmtp/xmtp-ios)
+- [Swift Package Index](https://swiftpackageindex.com/xmtp/xmtp-ios)
+- [CocoaPods Page](https://cocoapods.org/pods/XMTP)
+- [Example Application](https://github.com/xmtp/xmtp-ios/tree/main/example)

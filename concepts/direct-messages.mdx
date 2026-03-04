@@ -1,0 +1,352 @@
+---
+title: Direct messages
+description: Secure one-on-one encrypted messaging between two participants
+---
+
+Direct messages (DMs) are one-on-one encrypted conversations between two participants in XMTP. They provide a simple, secure way for two people to communicate.
+
+## Overview
+
+The `Dm` struct represents a direct message conversation. DMs are encrypted end-to-end and support real-time messaging, message history, and disappearing messages.
+
+```swift
+let dm = try await client.conversations.newDm(with: "0x1234...")
+
+try await dm.send(content: "Hello!")
+```
+
+## Creating a DM
+
+Create a direct message conversation with another user by their address.
+
+```swift
+let dm = try await client.conversations.newDm(with: peerAddress)
+
+print("Created DM with: \(try dm.peerInboxId)")
+```
+
+<Info>
+If a DM already exists with the peer, the existing conversation will be returned rather than creating a duplicate.
+</Info>
+
+## DM properties
+
+### Identity
+
+```swift
+// Unique conversation ID
+let id = dm.id
+
+// Conversation topic
+let topic = dm.topic
+
+// Creation timestamp
+let createdAt = dm.createdAt
+let createdAtNs = dm.createdAtNs
+```
+
+### Peer information
+
+Access information about the other participant.
+
+```swift
+// Peer's inbox ID
+let peerInboxId = try dm.peerInboxId
+
+// Check who created the DM
+let creatorInboxId = try await dm.creatorInboxId()
+let isCreator = try await dm.isCreator()
+
+// Check who added you
+let addedBy = try dm.addedByInboxId()
+```
+
+### Members
+
+DMs always have exactly two members.
+
+```swift
+let members = try await dm.members
+
+for member in members {
+  print("Member inbox ID: \(member.inboxId)")
+  print("Member addresses: \(member.addresses)")
+}
+```
+
+## Sending messages
+
+### Send text message
+
+```swift
+try await dm.send(content: "Hello from XMTP!")
+```
+
+### Send with content type
+
+Send attachments, reactions, or other content types.
+
+```swift
+let attachment = Attachment(
+  filename: "photo.jpg",
+  mimeType: "image/jpeg",
+  data: imageData
+)
+
+try await dm.send(
+  content: attachment,
+  options: .init(contentType: ContentTypeAttachment)
+)
+```
+
+### Optimistic send
+
+Send a message and get an ID immediately.
+
+```swift
+let messageId = try await dm.publishMessages()
+print("Message ID: \(messageId)")
+```
+
+## Reading messages
+
+### List all messages
+
+```swift
+let messages = try await dm.messages()
+
+for message in messages {
+  print("From: \(message.senderInboxId)")
+  print("Content: \(try message.content())")
+  print("Sent at: \(message.sentAt)")
+}
+```
+
+### Pagination
+
+Retrieve messages in batches.
+
+```swift
+// Get first 50 messages
+let page1 = try await dm.messages(limit: 50)
+
+// Get next 50 messages
+let page2 = try await dm.messages(
+  limit: 50,
+  before: page1.last?.sentAtNs
+)
+```
+
+### Filter by time
+
+```swift
+// Messages from the last 24 hours
+let yesterday = Date().addingTimeInterval(-86400)
+let recent = try await dm.messages(after: yesterday)
+
+// Messages before a specific time
+let older = try await dm.messages(before: someDate)
+```
+
+### Sort order
+
+```swift
+// Ascending order (oldest first)
+let ascending = try await dm.messages(direction: .ascending)
+
+// Descending order (newest first, default)
+let descending = try await dm.messages(direction: .descending)
+```
+
+## Enriched messages
+
+Get messages with additional metadata for UI rendering.
+
+```swift
+let enrichedMessages = try await dm.enrichedMessages()
+
+for message in enrichedMessages {
+  // Access sender information
+  if let sender = message.sender {
+    print("From: \(sender.inboxId)")
+  }
+  
+  // Check if you sent it
+  if message.isSent {
+    print("You sent this message")
+  }
+}
+```
+
+## Streaming messages
+
+Receive messages in real-time.
+
+```swift
+Task {
+  for try await message in dm.streamMessages() {
+    print("New message: \(try message.content())")
+  }
+}
+```
+
+### Stop streaming
+
+```swift
+dm.endStream()
+```
+
+## Disappearing messages
+
+Configure messages to automatically delete after a specified time.
+
+### Enable disappearing messages
+
+```swift
+// Messages disappear after 24 hours
+try await dm.updateConversationMessageDisappearing(
+  disappearingMessagesSetting: .enabled,
+  timeNs: 24 * 3600 * 1_000_000_000 // 24 hours in nanoseconds
+)
+```
+
+### Check settings
+
+```swift
+if try dm.isDisappearingMessagesEnabled() {
+  if let settings = dm.disappearingMessageSettings {
+    let hours = settings.timeNs / (3600 * 1_000_000_000)
+    print("Messages disappear after \(hours) hours")
+  }
+}
+```
+
+### Disable disappearing messages
+
+```swift
+try await dm.updateConversationMessageDisappearing(
+  disappearingMessagesSetting: .disabled
+)
+```
+
+<Warning>
+Disappearing messages only affect new messages. Previously sent messages are not deleted retroactively.
+</Warning>
+
+## Message counts
+
+Get the number of messages in the DM.
+
+```swift
+let count = try await dm.messagesCount()
+print("Total messages: \(count)")
+```
+
+## Finding specific messages
+
+Find a message by its ID.
+
+```swift
+if let message = try await dm.findMessage(messageId: messageId) {
+  print("Found message: \(try message.content())")
+}
+```
+
+## Synchronization
+
+Sync the DM with the network to receive updates.
+
+```swift
+try await dm.sync()
+```
+
+<Info>
+Call `sync()` to pull the latest messages and state from the network.
+</Info>
+
+## DM state
+
+### Check if active
+
+```swift
+if try dm.isActive() {
+  print("DM is active")
+} else {
+  print("DM has been deleted or archived")
+}
+```
+
+## Consent management
+
+Manage your consent preferences for the DM.
+
+```swift
+// Allow the DM
+try await dm.updateConsentState(state: .allowed)
+
+// Block the DM
+try await dm.updateConsentState(state: .denied)
+
+// Check current consent state
+let state = try dm.consentState()
+
+switch state {
+case .allowed:
+  print("DM is allowed")
+case .denied:
+  print("DM is blocked")
+case .unknown:
+  print("No consent preference set")
+}
+```
+
+## Processing in batch
+
+Process a batch of messages efficiently.
+
+```swift
+let messageIds = [id1, id2, id3]
+try await dm.processMessage(messageIds: messageIds)
+```
+
+## Best practices
+
+<CardGroup cols={2}>
+  <Card title="Check peer eligibility" icon="user-check">
+    Verify the peer address can receive messages before creating a DM.
+  </Card>
+  <Card title="Use streaming for real-time" icon="tower-broadcast">
+    Implement message streaming instead of polling for better UX.
+  </Card>
+  <Card title="Handle consent properly" icon="shield-halved">
+    Always check and respect consent states for privacy.
+  </Card>
+  <Card title="Paginate message history" icon="list">
+    Load messages in batches rather than all at once for better performance.
+  </Card>
+</CardGroup>
+
+## Comparison with groups
+
+| Feature | Direct Messages | Groups |
+|---------|----------------|--------|
+| Participants | Always 2 | 2 or more |
+| Member management | Fixed | Dynamic |
+| Admin roles | None | Yes |
+| Permissions | Equal | Configurable |
+| Metadata | Limited | Name, image, description |
+| Use case | One-on-one chat | Team collaboration |
+
+## Related documentation
+
+<CardGroup cols={3}>
+  <Card title="Sending messages" icon="paper-plane" href="/guides/sending-messages">
+    Guide to sending different message types
+  </Card>
+  <Card title="Receiving messages" icon="inbox" href="/guides/receiving-messages">
+    Guide to receiving and displaying messages
+  </Card>
+  <Card title="DM API reference" icon="code" href="/api/dm">
+    Complete API documentation for Dm
+  </Card>
+</CardGroup>

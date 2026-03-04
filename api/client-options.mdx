@@ -1,0 +1,138 @@
+---
+title: ClientOptions
+description: Configuration options for creating an XMTP Client
+---
+
+`ClientOptions` is a struct that specifies configuration options for creating a `Client`. It provides control over network settings, database configuration, content codecs, and sync behavior.
+
+## Properties
+
+<ParamField path="api" type="ClientOptions.Api" default="Api()">
+  Network configuration options. See [Api](#api) below.
+</ParamField>
+
+<ParamField path="codecs" type="[any ContentCodec]" default="[]">
+  Array of content codecs to register with the client. Codecs enable encoding and decoding different content types like text, attachments, reactions, etc.
+</ParamField>
+
+<ParamField path="preAuthenticateToInboxCallback" type="PreEventCallback?" default="nil">
+  Optional callback function that will be called immediately before an Auth Inbox signature is requested from the user.
+  
+  ```swift
+  public typealias PreEventCallback = () async throws -> Void
+  ```
+</ParamField>
+
+<ParamField path="dbEncryptionKey" type="Data" required>
+  Encryption key for the local database. This is required to secure the client's local storage.
+</ParamField>
+
+<ParamField path="dbDirectory" type="String?" default="nil">
+  Optional custom directory path for the database. If not provided, defaults to the system's documents directory.
+</ParamField>
+
+<ParamField path="historySyncUrl" type="String?" default="nil">
+  Optional URL for the history sync server. If `useDefaultHistorySyncUrl` is true and this is nil, the environment's default history sync URL will be used.
+</ParamField>
+
+<ParamField path="deviceSyncEnabled" type="Bool" default="true">
+  Whether device synchronization is enabled. When enabled, the client will sync messages and state across multiple devices.
+</ParamField>
+
+<ParamField path="debugEventsEnabled" type="Bool" default="false">
+  Whether debug events are enabled for troubleshooting and development.
+</ParamField>
+
+<ParamField path="forkRecoveryOptions" type="ForkRecoveryOptions?" default="nil">
+  Optional configuration for fork recovery behavior. See [ForkRecoveryOptions](#forkrecoveryoptions) below.
+</ParamField>
+
+## Nested Types
+
+### Api
+
+Network configuration options for the XMTP client.
+
+<ParamField path="env" type="XMTPEnvironment" default=".dev">
+  The XMTP network environment to connect to.
+  
+  - `.dev` - Development environment (grpc.dev.xmtp.network)
+  - `.production` - Production environment (grpc.production.xmtp.network)
+  - `.local` - Local development environment (localhost)
+</ParamField>
+
+<ParamField path="isSecure" type="Bool" default="true">
+  Whether the API client should use TLS security. Should only be `false` when using the `.local` environment.
+</ParamField>
+
+<ParamField path="appVersion" type="String?" default="nil">
+  Optional application version identifier to include in API requests.
+</ParamField>
+
+<ParamField path="gatewayHost" type="String?" default="nil">
+  Optional gateway URL for future-proofing. Currently reserved for future use.
+</ParamField>
+
+### ForkRecoveryOptions
+
+Configuration options for handling fork recovery in group conversations.
+
+<ParamField path="enableRecoveryRequests" type="ForkRecoveryPolicy" required>
+  Policy for enabling recovery requests.
+  
+  - `.none` - No fork recovery
+  - `.allowlistedGroups` - Only recover allowlisted groups
+  - `.all` - Recover all groups
+</ParamField>
+
+<ParamField path="groupsToRequestRecovery" type="[String]" required>
+  Array of group IDs that should be recovered when `enableRecoveryRequests` is set to `.allowlistedGroups`.
+</ParamField>
+
+<ParamField path="disableRecoveryResponses" type="Bool?" default="nil">
+  Optional flag to disable sending recovery responses to other clients.
+</ParamField>
+
+<ParamField path="workerIntervalNs" type="UInt64?" default="nil">
+  Optional interval in nanoseconds for the fork recovery worker to check for recovery requests.
+</ParamField>
+
+## Example Usage
+
+```swift
+import XMTP
+import CryptoKit
+
+// Generate encryption key
+let encryptionKey = SymmetricKey(size: .bits256)
+let keyData = encryptionKey.withUnsafeBytes { Data($0) }
+
+// Create options with custom configuration
+let options = ClientOptions(
+    api: ClientOptions.Api(
+        env: .production,
+        isSecure: true,
+        appVersion: "1.0.0"
+    ),
+    codecs: [
+        TextCodec(),
+        AttachmentCodec(),
+        ReactionCodec()
+    ],
+    dbEncryptionKey: keyData,
+    dbDirectory: "/path/to/custom/db",
+    deviceSyncEnabled: true
+)
+
+// Create client with options
+let client = try await Client.create(
+    account: signingKey,
+    options: options
+)
+```
+
+## See Also
+
+- [Client.create()](./client#create)
+- [XMTPEnvironment](./xmtp-environment)
+- [ContentCodec](./content-codec)

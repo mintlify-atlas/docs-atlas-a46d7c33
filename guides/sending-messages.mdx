@@ -1,0 +1,358 @@
+---
+title: Sending Messages
+description: Send text, attachments, and custom content in conversations
+---
+
+XMTP supports sending various types of content through a flexible codec system. Messages can be sent to both group conversations and direct messages (DMs).
+
+## Sending Text Messages
+
+The simplest way to send a message is with plain text:
+
+```swift
+// In a group
+let messageId = try await group.send(content: "Hello, world!")
+
+// In a DM
+let messageId = try await dm.send(content: "Hello!")
+```
+
+The `send` method returns a hex-encoded message ID that you can use to track the message.
+
+## Sending with Content Codecs
+
+### Text Codec
+
+The `TextCodec` is used by default for string content:
+
+```swift
+import XMTP
+
+let text = "Hello from XMTP!"
+let messageId = try await group.send(content: text)
+```
+
+### Attachment Codec
+
+Send files, images, or other binary data:
+
+```swift
+let imageData = try Data(contentsOf: imageURL)
+let attachment = Attachment(
+    filename: "photo.jpg",
+    mimeType: "image/jpeg",
+    data: imageData
+)
+
+let messageId = try await group.send(
+    content: attachment,
+    options: SendOptions(contentType: ContentTypeAttachment)
+)
+```
+
+### Remote Attachment Codec
+
+For large files, upload to a storage service first, then send a reference:
+
+<Steps>
+  <Step title="Encrypt the content">
+    ```swift
+    let imageData = try Data(contentsOf: largeImageURL)
+    let attachment = Attachment(
+        filename: "large-photo.jpg",
+        mimeType: "image/jpeg",
+        data: imageData
+    )
+
+    let encrypted = try RemoteAttachment.encodeEncrypted(
+        content: attachment,
+        codec: AttachmentCodec()
+    )
+    ```
+  </Step>
+
+  <Step title="Upload encrypted payload">
+    ```swift
+    // Upload encrypted.payload to your storage service
+    let uploadedURL = try await uploadToStorage(encrypted.payload)
+    ```
+  </Step>
+
+  <Step title="Send the remote attachment reference">
+    ```swift
+    let remoteAttachment = try RemoteAttachment(
+        url: uploadedURL,
+        encryptedEncodedContent: encrypted
+    )
+
+    let messageId = try await group.send(
+        content: remoteAttachment,
+        options: SendOptions(contentType: ContentTypeRemoteAttachment)
+    )
+    ```
+  </Step>
+</Steps>
+
+### Reaction Codec
+
+React to existing messages:
+
+```swift
+let reaction = Reaction(
+    reference: messageId,
+    action: .added,
+    content: "👍",
+    schema: .unicode
+)
+
+let reactionId = try await group.send(
+    content: reaction,
+    options: SendOptions(contentType: ContentTypeReaction)
+)
+```
+
+**Reaction actions:**
+- `.added` - Add a new reaction
+- `.removed` - Remove an existing reaction
+
+**Reaction schemas:**
+- `.unicode` - Unicode emoji (recommended)
+- `.shortcode` - Emoji shortcodes like `:smile:`
+- `.custom` - Custom reaction system
+
+## Send Options
+
+Customize message sending behavior with `SendOptions`:
+
+### Content Type
+
+Specify the content type explicitly:
+
+```swift
+let options = SendOptions(
+    contentType: ContentTypeAttachment
+)
+
+let messageId = try await group.send(
+    content: attachment,
+    options: options
+)
+```
+
+### Compression
+
+Compress large message content:
+
+```swift
+let options = SendOptions(
+    compression: .gzip // or .deflate
+)
+
+let messageId = try await group.send(
+    content: largeTextContent,
+    options: options
+)
+```
+
+## Message Visibility Options
+
+Control push notification behavior:
+
+```swift
+let visibilityOptions = MessageVisibilityOptions(
+    shouldPush: false // Don't trigger push notifications
+)
+
+let encodedContent = try await group.encodeContent(
+    content: "Silent message",
+    options: nil
+)
+
+let messageId = try await group.send(
+    encodedContent: encodedContent.0,
+    visibilityOptions: visibilityOptions
+)
+```
+
+## Optimistic Sending
+
+For better UX, prepare messages optimistically before sending:
+
+<Steps>
+  <Step title="Prepare the message">
+    ```swift
+    // Prepare message locally without sending
+    let messageId = try await group.prepareMessage(
+        content: "Preparing...",
+        noSend: true
+    )
+    ```
+  </Step>
+
+  <Step title="Show in UI immediately">
+    ```swift
+    // Display message in your UI with pending state
+    showMessage(messageId: messageId, status: .pending)
+    ```
+  </Step>
+
+  <Step title="Publish when ready">
+    ```swift
+    // Publish the prepared message
+    try await group.publishMessage(messageId: messageId)
+    ```
+  </Step>
+</Steps>
+
+### Publish Multiple Messages
+
+Publish all prepared messages in a batch:
+
+```swift
+// Prepare several messages
+let id1 = try await group.prepareMessage(content: "Message 1", noSend: true)
+let id2 = try await group.prepareMessage(content: "Message 2", noSend: true)
+let id3 = try await group.prepareMessage(content: "Message 3", noSend: true)
+
+// Publish all at once
+try await group.publishMessages()
+```
+
+## Encoding Content Manually
+
+For advanced use cases, encode content separately:
+
+```swift
+let (encodedContent, visibilityOptions) = try await group.encodeContent(
+    content: "Custom encoding",
+    options: SendOptions(compression: .gzip)
+)
+
+// Later, send the encoded content
+let messageId = try await group.send(
+    encodedContent: encodedContent,
+    visibilityOptions: visibilityOptions
+)
+```
+
+## Error Handling
+
+Handle common sending errors:
+
+```swift
+do {
+    let messageId = try await group.send(content: "Hello")
+    print("Message sent: \(messageId)")
+} catch {
+    print("Failed to send message: \(error)")
+    // Handle error appropriately
+}
+```
+
+## Sending to Direct Messages
+
+DMs support the same sending methods as groups:
+
+```swift
+// Create or find a DM
+let dm = try await client.conversations.findOrCreateDm(
+    with: peerInboxId
+)
+
+// Send any content type
+let messageId = try await dm.send(content: "Hello!")
+```
+
+## Custom Content Types
+
+Create and register custom content codecs:
+
+<Steps>
+  <Step title="Define your content type">
+    ```swift
+    struct MyCustomContent {
+        let title: String
+        let data: [String: Any]
+    }
+    ```
+  </Step>
+
+  <Step title="Implement ContentCodec protocol">
+    ```swift
+    struct MyCustomCodec: ContentCodec {
+        typealias T = MyCustomContent
+        
+        var contentType = ContentTypeID(
+            authorityID: "myapp.com",
+            typeID: "custom",
+            versionMajor: 1,
+            versionMinor: 0
+        )
+        
+        func encode(content: MyCustomContent) throws -> EncodedContent {
+            var encoded = EncodedContent()
+            encoded.type = contentType
+            encoded.content = try JSONEncoder().encode(content)
+            return encoded
+        }
+        
+        func decode(content: EncodedContent) throws -> MyCustomContent {
+            try JSONDecoder().decode(MyCustomContent.self, from: content.content)
+        }
+        
+        func fallback(content: MyCustomContent) throws -> String? {
+            "Custom content: \(content.title)"
+        }
+        
+        func shouldPush(content: MyCustomContent) throws -> Bool {
+            true
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Register the codec">
+    ```swift
+    // Register globally
+    Client.register(codec: MyCustomCodec())
+    
+    // Or during client creation
+    let options = ClientOptions(
+        api: apiConfig,
+        dbEncryptionKey: encryptionKey,
+        codecs: [MyCustomCodec()]
+    )
+    ```
+  </Step>
+
+  <Step title="Send custom content">
+    ```swift
+    let customContent = MyCustomContent(
+        title: "Example",
+        data: ["key": "value"]
+    )
+    
+    let messageId = try await group.send(content: customContent)
+    ```
+  </Step>
+</Steps>
+
+## Best Practices
+
+1. **Use appropriate codecs** - Choose the right codec for your content type
+2. **Handle errors gracefully** - Network issues can cause send failures
+3. **Implement retry logic** - Retry failed sends with exponential backoff
+4. **Use optimistic sending** - Improve UX by showing messages immediately
+5. **Validate content** - Check content before encoding to avoid errors
+6. **Compress large content** - Use compression for better performance
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Receiving Messages" icon="inbox" href="/guides/receiving-messages">
+    Learn how to receive and decode messages
+  </Card>
+  <Card title="Content Codecs" icon="puzzle-piece" href="/guides/content-codecs">
+    Deep dive into the codec system
+  </Card>
+</CardGroup>

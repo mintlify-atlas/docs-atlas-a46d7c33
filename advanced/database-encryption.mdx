@@ -1,0 +1,276 @@
+---
+title: Database Encryption
+description: Secure your local XMTP database with encryption keys
+---
+
+The XMTP iOS SDK stores conversation data, messages, and cryptographic keys in a local SQLite database. Database encryption is **required** to protect sensitive user data.
+
+## Overview
+
+Every XMTP client requires an encryption key to secure its local database. The SDK uses this key to encrypt all stored data, including:
+
+- Conversation metadata and membership
+- Message content and attachments
+- Cryptographic key material
+- User preferences and consent records
+
+## Providing an Encryption Key
+
+You must provide a 32-byte encryption key when creating a client through the `ClientOptions`:
+
+```swift Client.swift:109
+import Foundation
+import XMTPiOS
+
+// Generate a random 32-byte encryption key
+let encryptionKey = Data((0..<32).map { _ in UInt8.random(in: 0...255) })
+
+let options = ClientOptions(
+    api: .init(env: .production, isSecure: true),
+    dbEncryptionKey: encryptionKey
+)
+
+let client = try await Client.create(
+    account: signingKey,
+    options: options
+)
+```
+
+## Key Generation Strategies
+
+### Random Key Generation
+
+For new users, generate a cryptographically secure random key:
+
+```swift
+import CryptoKit
+
+// Using CryptoKit (recommended)
+let symmetricKey = SymmetricKey(size: .bits256)
+let encryptionKey = symmetricKey.withUnsafeBytes { Data($0) }
+
+// Or using SecRandomCopyBytes
+var keyData = Data(count: 32)
+let result = keyData.withUnsafeMutableBytes {
+    SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!)
+}
+if result == errSecSuccess {
+    let encryptionKey = keyData
+}
+```
+
+### Deriving from User Credentials
+
+You can derive a deterministic key from user credentials using PBKDF2:
+
+```swift
+import CryptoKit
+
+func deriveEncryptionKey(from password: String, salt: Data) -> Data {
+    let passwordData = Data(password.utf8)
+    let derivedKey = PBKDF2.deriveKey(
+        password: passwordData,
+        salt: salt,
+        iterations: 100_000,
+        keyLength: 32
+    )
+    return derivedKey
+}
+
+// Generate or retrieve a persistent salt for the user
+let salt = loadOrGenerateSalt(for: userIdentifier)
+let encryptionKey = deriveEncryptionKey(from: userPassword, salt: salt)
+```
+
+<Warning>
+If using password-based derivation, you must store the salt securely and consistently. Losing the salt means losing access to the encrypted database.
+</Warning>
+
+## Secure Key Storage
+
+The encryption key should be stored securely using the iOS Keychain:
+
+```swift
+import Security
+
+func saveEncryptionKey(_ key: Data, for account: String) throws {
+    let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrAccount as String: account,
+        kSecAttrService as String: "com.xmtp.encryptionkey",
+        kSecValueData as String: key,
+        kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    ]
+    
+    let status = SecItemAdd(query as CFDictionary, nil)
+    guard status == errSecSuccess else {
+        throw KeychainError.saveFailed(status)
+    }
+}
+
+func loadEncryptionKey(for account: String) throws -> Data {
+    let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrAccount as String: account,
+        kSecAttrService as String: "com.xmtp.encryptionkey",
+        kSecReturnData as String: true
+    ]
+    
+    var result: AnyObject?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    
+    guard status == errSecSuccess,
+          let keyData = result as? Data else {
+        throw KeychainError.loadFailed(status)
+    }
+    
+    return keyData
+}
+```
+
+## Complete Example
+
+Here's a complete example of managing encryption keys across app launches:
+
+```swift
+import Foundation
+import XMTPiOS
+import CryptoKit
+
+class XMTPManager {
+    private let keychainAccount = "xmtp-encryption-key"
+    
+    func createClient(signingKey: SigningKey) async throws -> Client {
+        // Try to load existing key, or generate new one
+        let encryptionKey: Data
+        do {
+            encryptionKey = try loadEncryptionKey(for: keychainAccount)
+        } catch {
+            // Generate new key for first-time user
+            let symmetricKey = SymmetricKey(size: .bits256)
+            encryptionKey = symmetricKey.withUnsafeBytes { Data($0) }
+            try saveEncryptionKey(encryptionKey, for: keychainAccount)
+        }
+        
+        let options = ClientOptions(
+            api: .init(env: .production, isSecure: true),
+            dbEncryptionKey: encryptionKey
+        )
+        
+        return try await Client.create(
+            account: signingKey,
+            options: options
+        )
+    }
+}
+```
+
+## Database Location
+
+By default, the encrypted database is stored in the app's documents directory with the naming pattern:
+
+```
+xmtp-{environment}-{inboxId}.db3
+```
+
+You can customize the database location using the `dbDirectory` option:
+
+```swift Client.swift:110
+let options = ClientOptions(
+    api: .init(env: .production, isSecure: true),
+    dbEncryptionKey: encryptionKey,
+    dbDirectory: customDatabasePath
+)
+```
+
+## Key Rotation
+
+The SDK does not currently support rotating encryption keys on an existing database. If you need to change the encryption key:
+
+1. Export data using the archive functionality
+2. Delete the old encrypted database
+3. Create a new client with the new encryption key
+4. Import the archived data
+
+```swift
+// Export with old key
+try await oldClient.createArchive(
+    path: archivePath,
+    encryptionKey: oldEncryptionKey
+)
+
+// Delete old database
+try oldClient.deleteLocalDatabase()
+
+// Create new client with new key
+let newClient = try await Client.create(
+    account: signingKey,
+    options: ClientOptions(
+        api: .init(env: .production),
+        dbEncryptionKey: newEncryptionKey
+    )
+)
+
+// Import archived data
+try await newClient.importArchive(
+    path: archivePath,
+    encryptionKey: oldEncryptionKey
+)
+```
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Keychain" icon="lock">
+    Always store encryption keys in the iOS Keychain, never in UserDefaults or files
+  </Card>
+  <Card title="32-byte Keys" icon="key">
+    Always use full 32-byte (256-bit) keys for maximum security
+  </Card>
+  <Card title="Secure Generation" icon="shield">
+    Use CryptoKit or SecRandomCopyBytes for cryptographically secure random keys
+  </Card>
+  <Card title="Per-User Keys" icon="user">
+    Use unique encryption keys for each user account in multi-account scenarios
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### Database Access Errors
+
+If you receive database access errors, verify:
+
+1. The encryption key is exactly 32 bytes
+2. You're using the same key that was used to create the database
+3. The database file hasn't been corrupted
+
+### Lost Encryption Key
+
+If the encryption key is lost:
+
+- The database cannot be decrypted
+- You must delete the database and create a new client
+- Historical messages will be lost unless backed up
+
+```swift Client.swift:837
+// Delete the encrypted database
+try client.deleteLocalDatabase()
+
+// Create a new client with a new key
+let newClient = try await Client.create(
+    account: signingKey,
+    options: options
+)
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Client Configuration" href="/configuration/client-options">
+    Learn about other client configuration options
+  </Card>
+  <Card title="Testing" href="/advanced/testing">
+    Set up test clients with encryption
+  </Card>
+</CardGroup>

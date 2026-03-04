@@ -1,0 +1,191 @@
+---
+title: AttachmentCodec
+description: Codec for encoding and decoding file attachments
+---
+
+## Overview
+
+The `AttachmentCodec` enables sending files as message content, including the file data, filename, and MIME type.
+
+## Content Type
+
+```swift
+public let ContentTypeAttachment = ContentTypeID(
+    authorityID: "xmtp.org",
+    typeID: "attachment",
+    versionMajor: 1,
+    versionMinor: 0
+)
+```
+
+## Data Structures
+
+### Attachment
+
+```swift
+public struct Attachment: Codable {
+    public var filename: String
+    public var mimeType: String
+    public var data: Data
+    
+    public init(filename: String, mimeType: String, data: Data)
+}
+```
+
+**Properties:**
+- `filename`: The name of the file
+- `mimeType`: The MIME type (e.g., "image/png", "application/pdf")
+- `data`: The file contents as binary data
+
+### AttachmentCodec
+
+```swift
+public struct AttachmentCodec: ContentCodec {
+    public typealias T = Attachment
+    public var contentType = ContentTypeAttachment
+}
+```
+
+## Methods
+
+### encode
+
+Encodes an attachment into `EncodedContent`.
+
+```swift
+public func encode(content: Attachment) throws -> EncodedContent
+```
+
+**Parameters:**
+- `content`: The attachment to encode
+
+**Returns:** `EncodedContent` with file data and metadata
+
+### decode
+
+Decodes `EncodedContent` back into an attachment.
+
+```swift
+public func decode(content: EncodedContent) throws -> Attachment
+```
+
+**Parameters:**
+- `content`: The encoded content to decode
+
+**Returns:** The decoded `Attachment`
+
+**Throws:** `AttachmentCodecError.invalidParameters` if filename or mimeType is missing
+
+### fallback
+
+Provides fallback text for clients that don't support attachments.
+
+```swift
+public func fallback(content: Attachment) throws -> String?
+```
+
+**Returns:** A message indicating the attachment cannot be displayed
+
+### shouldPush
+
+Determines if this content should trigger a push notification.
+
+```swift
+public func shouldPush(content: Attachment) throws -> Bool
+```
+
+**Returns:** `true` (attachments should trigger notifications)
+
+## Usage
+
+### Registering the Codec
+
+```swift
+let client = try await Client.create(account: account)
+client.register(codec: AttachmentCodec())
+```
+
+### Sending an Attachment
+
+```swift
+// Load an image
+if let imageData = UIImage(named: "photo")?.pngData() {
+    let attachment = Attachment(
+        filename: "photo.png",
+        mimeType: "image/png",
+        data: imageData
+    )
+    
+    try await conversation.send(
+        content: attachment,
+        options: .init(contentType: ContentTypeAttachment)
+    )
+}
+```
+
+### Receiving an Attachment
+
+```swift
+for try await message in conversation.streamMessages() {
+    if message.encodedContent.type == ContentTypeAttachment {
+        let attachment: Attachment = try message.content()
+        print("Received file: \(attachment.filename)")
+        print("MIME type: \(attachment.mimeType)")
+        print("Size: \(attachment.data.count) bytes")
+        
+        // Save or display the attachment
+        // ...
+    }
+}
+```
+
+### Sending a PDF Document
+
+```swift
+if let pdfURL = Bundle.main.url(forResource: "document", withExtension: "pdf"),
+   let pdfData = try? Data(contentsOf: pdfURL) {
+    let attachment = Attachment(
+        filename: "document.pdf",
+        mimeType: "application/pdf",
+        data: pdfData
+    )
+    
+    try await conversation.send(
+        content: attachment,
+        options: .init(contentType: ContentTypeAttachment)
+    )
+}
+```
+
+## Error Handling
+
+```swift
+enum AttachmentCodecError: Error {
+    case invalidParameters
+    case unknownDecodingError
+}
+```
+
+**Error Cases:**
+- `invalidParameters`: Missing filename or mimeType in encoded content
+- `unknownDecodingError`: Failed to decode attachment
+
+## Encoded Format
+
+The codec produces `EncodedContent` with:
+- **type**: `ContentTypeAttachment`
+- **parameters**: `["filename": <filename>, "mimeType": <mimeType>]`
+- **content**: Raw file data
+
+## Notes
+
+<Warning>
+Attachments embed the full file data in the message. For large files, consider using [RemoteAttachmentCodec](/api/codecs/remote-attachment-codec) to store the encrypted file externally and send only a reference.
+</Warning>
+
+## Common MIME Types
+
+- Images: `image/png`, `image/jpeg`, `image/gif`
+- Documents: `application/pdf`, `text/plain`
+- Video: `video/mp4`, `video/quicktime`
+- Audio: `audio/mpeg`, `audio/wav`

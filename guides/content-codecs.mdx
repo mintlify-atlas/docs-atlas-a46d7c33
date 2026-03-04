@@ -1,0 +1,451 @@
+---
+title: Content Codecs
+description: Understand and implement content codecs for different message types
+---
+
+Content codecs enable XMTP to support different types of message content beyond plain text. The codec system is extensible, allowing you to create custom content types for your application.
+
+## How Codecs Work
+
+Codecs encode content into a standard `EncodedContent` format for transmission and decode it back to the original format when received.
+
+```swift
+public protocol ContentCodec {
+    associatedtype T
+    
+    var contentType: ContentTypeID { get }
+    func encode(content: T) throws -> EncodedContent
+    func decode(content: EncodedContent) throws -> T
+    func fallback(content: T) throws -> String?
+    func shouldPush(content: T) throws -> Bool
+}
+```
+
+## Built-in Codecs
+
+### TextCodec
+
+Handles plain text messages (default):
+
+```swift
+import XMTP
+
+// Automatically used for string content
+let messageId = try await group.send(content: "Hello!")
+
+// Explicit usage
+Client.register(codec: TextCodec())
+```
+
+**Content Type ID:**
+```swift
+ContentTypeID(
+    authorityID: "xmtp.org",
+    typeID: "text",
+    versionMajor: 1,
+    versionMinor: 0
+)
+```
+
+### AttachmentCodec
+
+Send files, images, and other binary data:
+
+```swift
+let attachment = Attachment(
+    filename: "document.pdf",
+    mimeType: "application/pdf",
+    data: documentData
+)
+
+let messageId = try await group.send(
+    content: attachment,
+    options: SendOptions(contentType: ContentTypeAttachment)
+)
+```
+
+**Decoding attachments:**
+```swift
+if message.contentType == ContentTypeAttachment {
+    let attachment: Attachment = try message.content()
+    
+    // Access attachment properties
+    print("Filename: \(attachment.filename)")
+    print("MIME type: \(attachment.mimeType)")
+    print("Size: \(attachment.data.count) bytes")
+    
+    // Save to disk
+    try attachment.data.write(to: destinationURL)
+}
+```
+
+**Fallback text:**
+```
+"Can't display "{filename}". This app doesn't support attachments."
+```
+
+### RemoteAttachmentCodec
+
+Reference large files stored externally:
+
+<Steps>
+  <Step title="Encrypt and prepare the content">
+    ```swift
+    let attachment = Attachment(
+        filename: "video.mp4",
+        mimeType: "video/mp4",
+        data: videoData
+    )
+    
+    let encrypted = try RemoteAttachment.encodeEncrypted(
+        content: attachment,
+        codec: AttachmentCodec()
+    )
+    ```
+  </Step>
+
+  <Step title="Upload the encrypted payload">
+    ```swift
+    // Upload encrypted.payload to your storage service
+    let url = try await uploadToS3(encrypted.payload)
+    ```
+  </Step>
+
+  <Step title="Send the reference">
+    ```swift
+    let remoteAttachment = try RemoteAttachment(
+        url: url,
+        encryptedEncodedContent: encrypted
+    )
+    
+    try await group.send(
+        content: remoteAttachment,
+        options: SendOptions(contentType: ContentTypeRemoteAttachment)
+    )
+    ```
+  </Step>
+
+  <Step title="Receive and decrypt">
+    ```swift
+    if message.contentType == ContentTypeRemoteAttachment {
+        let remote: RemoteAttachment = try message.content()
+        
+        // Download and decrypt
+        let encodedContent = try await remote.content()
+        let attachment: Attachment = try encodedContent.decoded()
+    }
+    ```
+  </Step>
+</Steps>
+
+**Required scheme:** Only `https://` URLs are supported for security.
+
+### ReactionCodec
+
+Add emoji reactions to messages:
+
+```swift
+let reaction = Reaction(
+    reference: messageId,
+    action: .added,
+    content: "🎉",
+    schema: .unicode,
+    referenceInboxId: senderInboxId
+)
+
+try await group.send(
+    content: reaction,
+    options: SendOptions(contentType: ContentTypeReaction)
+)
+```
+
+**Remove a reaction:**
+```swift
+let removeReaction = Reaction(
+    reference: messageId,
+    action: .removed,
+    content: "🎉",
+    schema: .unicode
+)
+
+try await group.send(content: removeReaction)
+```
+
+**Reaction schemas:**
+- `.unicode` - Standard Unicode emoji (recommended)
+- `.shortcode` - Text-based emoji codes like `:smile:`
+- `.custom` - Custom reaction identifiers
+
+**Push behavior:** Reactions don't trigger push notifications by default.
+
+### ReplyCodec
+
+Reply to specific messages:
+
+```swift
+let reply = Reply(
+    reference: originalMessageId,
+    content: "Great idea!"
+)
+
+try await group.send(content: reply)
+```
+
+### ReadReceiptCodec
+
+Send read receipts:
+
+```swift
+let receipt = ReadReceipt()
+
+try await group.send(
+    content: receipt,
+    options: SendOptions(contentType: ContentTypeReadReceipt)
+)
+```
+
+**Push behavior:** Read receipts don't trigger push notifications.
+
+## Content Compression
+
+Compress large content before sending:
+
+```swift
+let largeText = "...very long text..."
+
+let options = SendOptions(
+    compression: .gzip // or .deflate
+)
+
+let messageId = try await group.send(
+    content: largeText,
+    options: options
+)
+```
+
+**Compression is automatic on decode:**
+```swift
+let content: String = try message.content()
+// Automatically decompressed
+```
+
+## Creating Custom Codecs
+
+<Steps>
+  <Step title="Define your content structure">
+    ```swift
+    struct Poll: Codable {
+        let question: String
+        let options: [String]
+        let endTime: Date
+    }
+    ```
+  </Step>
+
+  <Step title="Implement the ContentCodec protocol">
+    ```swift
+    struct PollCodec: ContentCodec {
+        typealias T = Poll
+        
+        var contentType = ContentTypeID(
+            authorityID: "myapp.com",
+            typeID: "poll",
+            versionMajor: 1,
+            versionMinor: 0
+        )
+        
+        func encode(content: Poll) throws -> EncodedContent {
+            var encoded = EncodedContent()
+            encoded.type = contentType
+            encoded.content = try JSONEncoder().encode(content)
+            encoded.parameters = [
+                "question": content.question,
+                "optionCount": String(content.options.count)
+            ]
+            return encoded
+        }
+        
+        func decode(content: EncodedContent) throws -> Poll {
+            try JSONDecoder().decode(Poll.self, from: content.content)
+        }
+        
+        func fallback(content: Poll) throws -> String? {
+            "Poll: \(content.question)"
+        }
+        
+        func shouldPush(content: Poll) throws -> Bool {
+            true // Trigger push notifications for polls
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Register the codec">
+    ```swift
+    // Register globally
+    Client.register(codec: PollCodec())
+    
+    // Or during client creation
+    let options = ClientOptions(
+        api: apiConfig,
+        dbEncryptionKey: encryptionKey,
+        codecs: [PollCodec()]
+    )
+    ```
+  </Step>
+
+  <Step title="Use your custom codec">
+    ```swift
+    let poll = Poll(
+        question: "What's for lunch?",
+        options: ["Pizza", "Salad", "Sushi"],
+        endTime: Date().addingTimeInterval(3600)
+    )
+    
+    let messageId = try await group.send(content: poll)
+    ```
+  </Step>
+
+  <Step title="Decode custom content">
+    ```swift
+    if message.contentType.typeID == "poll" {
+        let poll: Poll = try message.content()
+        displayPoll(poll)
+    }
+    ```
+  </Step>
+</Steps>
+
+## Codec Registry
+
+The codec registry manages all registered codecs:
+
+```swift
+// Register a codec globally
+Client.register(codec: MyCustomCodec())
+
+// The registry automatically finds the right codec
+let codec = Client.codecRegistry.find(for: contentType)
+```
+
+## Fallback Handling
+
+Fallback text is displayed when the receiving client doesn't support a content type:
+
+```swift
+func fallback(content: MyContent) throws -> String? {
+    // Return descriptive text for unsupported clients
+    return "Unsupported content: \(content.description)"
+}
+```
+
+**Example fallbacks:**
+- Attachments: "Can't display "{filename}". This app doesn't support attachments."
+- Reactions: "Reacted "👍" to an earlier message"
+- Polls: "Poll: What's for lunch?"
+
+## Push Notification Control
+
+Control whether content triggers push notifications:
+
+```swift
+func shouldPush(content: MyContent) throws -> Bool {
+    // Don't push for minor updates
+    if content.isMinorUpdate {
+        return false
+    }
+    
+    // Push for important content
+    return true
+}
+```
+
+**Default behaviors:**
+- Text messages: `true`
+- Attachments: `true`
+- Reactions: `false`
+- Read receipts: `false`
+
+## Content Type Identification
+
+Content types are identified by their ContentTypeID:
+
+```swift
+struct ContentTypeID {
+    let authorityID: String  // e.g., "xmtp.org" or "myapp.com"
+    let typeID: String       // e.g., "text", "attachment"
+    let versionMajor: Int
+    let versionMinor: Int
+}
+```
+
+**Comparing content types:**
+```swift
+if message.contentType == ContentTypeAttachment {
+    // Handle attachment
+}
+
+// Or check by type ID
+if message.contentType.typeID == "poll" {
+    // Handle poll
+}
+```
+
+## Error Handling
+
+```swift
+do {
+    let content: MyContent = try message.content()
+} catch CodecError.invalidContent {
+    print("Content format is invalid")
+} catch CodecError.codecNotFound {
+    print("No codec registered for this content type")
+    // Show fallback text
+    let fallback = message.fallback
+} catch {
+    print("Failed to decode content: \(error)")
+}
+```
+
+## Best Practices
+
+1. **Provide meaningful fallbacks** - Help users on older clients
+2. **Version your content types** - Allow for future evolution
+3. **Validate content** - Check content before encoding
+4. **Use compression wisely** - Compress large text, not binary data
+5. **Document your codecs** - Help other developers integrate
+6. **Test compatibility** - Ensure encoding/decoding roundtrips work
+7. **Consider push behavior** - Not all content needs notifications
+
+## Codec Lifecycle
+
+Codecs should be registered early in your app lifecycle:
+
+```swift
+@main
+struct MyApp: App {
+    init() {
+        // Register custom codecs on app launch
+        Client.register(codec: PollCodec())
+        Client.register(codec: TaskCodec())
+        Client.register(codec: LocationCodec())
+    }
+    
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+        }
+    }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Sending Messages" icon="paper-plane" href="/guides/sending-messages">
+    Send messages with different codecs
+  </Card>
+  <Card title="Receiving Messages" icon="inbox" href="/guides/receiving-messages">
+    Decode and process received content
+  </Card>
+</CardGroup>

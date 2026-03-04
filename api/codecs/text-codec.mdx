@@ -1,0 +1,130 @@
+---
+title: TextCodec
+description: Codec for encoding and decoding plain text messages
+---
+
+## Overview
+
+The `TextCodec` is the default content codec for XMTP messages, handling plain text content with UTF-8 encoding.
+
+## Content Type
+
+```swift
+public let ContentTypeText = ContentTypeID(
+    authorityID: "xmtp.org",
+    typeID: "text",
+    versionMajor: 1,
+    versionMinor: 0
+)
+```
+
+## Type Definition
+
+```swift
+public struct TextCodec: ContentCodec {
+    public typealias T = String
+    public var contentType = ContentTypeText
+}
+```
+
+## Methods
+
+### encode
+
+Encodes a string into `EncodedContent`.
+
+```swift
+public func encode(content: String) throws -> EncodedContent
+```
+
+**Parameters:**
+- `content`: The string to encode
+
+**Returns:** `EncodedContent` with UTF-8 encoded data
+
+**Throws:** `TextCodecError` if encoding fails
+
+### decode
+
+Decodes `EncodedContent` back into a string.
+
+```swift
+public func decode(content: EncodedContent) throws -> String
+```
+
+**Parameters:**
+- `content`: The encoded content to decode
+
+**Returns:** The decoded string
+
+**Throws:**
+- `TextCodecError.invalidEncoding`: If encoding is not UTF-8
+- `TextCodecError.unknownDecodingError`: If decoding fails
+
+### fallback
+
+Provides fallback text for clients that don't support this content type.
+
+```swift
+public func fallback(content: String) throws -> String?
+```
+
+**Returns:** `nil` (text content is universally supported)
+
+### shouldPush
+
+Determines if this content should trigger a push notification.
+
+```swift
+public func shouldPush(content: String) throws -> Bool
+```
+
+**Returns:** `true` (text messages should trigger notifications)
+
+## Usage
+
+### Sending a Text Message
+
+```swift
+// Text codec is registered by default
+try await conversation.send(content: "Hello, XMTP!")
+```
+
+### Custom Codec Registration
+
+While the text codec is registered by default, you can manually register it if needed:
+
+```swift
+let client = try await Client.create(account: account)
+client.register(codec: TextCodec())
+```
+
+### Receiving a Text Message
+
+```swift
+for try await message in conversation.streamMessages() {
+    if let text = try? message.content() as String {
+        print("Received text: \(text)")
+    }
+}
+```
+
+## Error Handling
+
+```swift
+enum TextCodecError: Error {
+    case invalidEncoding
+    case unknownDecodingError
+}
+```
+
+**Error Cases:**
+- `invalidEncoding`: Content is not UTF-8 encoded
+- `unknownDecodingError`: Failed to decode content to string
+
+## Encoded Format
+
+The codec produces `EncodedContent` with:
+- **type**: `ContentTypeText`
+- **parameters**: `["encoding": "UTF-8"]`
+- **content**: UTF-8 byte representation of the string

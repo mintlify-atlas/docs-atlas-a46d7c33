@@ -1,0 +1,426 @@
+---
+title: Receiving Messages
+description: Query, stream, and process incoming messages in real-time
+---
+
+XMTP provides powerful methods for receiving messages from conversations. You can query message history, stream new messages in real-time, and handle various content types.
+
+## Querying Messages
+
+### List Recent Messages
+
+Fetch message history from a conversation:
+
+```swift
+// Get the latest 50 messages
+let messages = try await group.messages(limit: 50)
+
+for message in messages {
+    print("From: \(message.senderInboxId)")
+    print("Content: \(message.content())")
+    print("Sent: \(message.sentAt)")
+}
+```
+
+### Pagination
+
+Query messages in pages using timestamps:
+
+```swift
+// Get messages before a specific timestamp
+let olderMessages = try await group.messages(
+    beforeNs: lastMessageTimestamp,
+    limit: 25
+)
+
+// Get messages after a specific timestamp
+let newerMessages = try await group.messages(
+    afterNs: lastMessageTimestamp,
+    limit: 25
+)
+```
+
+### Sort Direction
+
+Control the order of returned messages:
+
+```swift
+// Newest first (default)
+let messages = try await group.messages(
+    direction: .descending,
+    limit: 50
+)
+
+// Oldest first
+let messages = try await group.messages(
+    direction: .ascending,
+    limit: 50
+)
+```
+
+## Advanced Query Options
+
+### Filter by Delivery Status
+
+Query messages based on their delivery state:
+
+```swift
+// Only published messages
+let published = try await group.messages(
+    deliveryStatus: .published
+)
+
+// Only unpublished messages
+let unpublished = try await group.messages(
+    deliveryStatus: .unpublished
+)
+
+// Failed messages
+let failed = try await group.messages(
+    deliveryStatus: .failed
+)
+
+// All messages (default)
+let all = try await group.messages(
+    deliveryStatus: .all
+)
+```
+
+### Exclude Content Types
+
+Filter out specific content types:
+
+```swift
+let messages = try await group.messages(
+    excludeContentTypes: [
+        StandardContentType.reaction,
+        StandardContentType.readReceipt
+    ]
+)
+```
+
+### Exclude Senders
+
+Exclude messages from specific inbox IDs:
+
+```swift
+let messages = try await group.messages(
+    excludeSenderInboxIds: ["inboxId1", "inboxId2"]
+)
+```
+
+### Sort by Different Criteria
+
+Sort messages by sent time or insertion time:
+
+```swift
+// Sort by when message was sent
+let messages = try await group.messages(
+    sortBy: .sentAt
+)
+
+// Sort by when message was received/inserted locally
+let messages = try await group.messages(
+    sortBy: .insertedAt
+)
+```
+
+## Enriched Messages
+
+For UI rendering, use enriched messages that include reactions and metadata:
+
+```swift
+let enrichedMessages = try await group.enrichedMessages(limit: 50)
+
+for message in enrichedMessages {
+    // Access message content
+    let content: String = try message.content()
+    
+    // Access reactions directly
+    for reaction in message.reactions {
+        print("Reaction: \(reaction.content)")
+    }
+    
+    // Access reply information
+    if let reply = message.reply {
+        print("Reply to: \(reply.reference)")
+    }
+}
+```
+
+<Info>
+Enriched messages are recommended for UI rendering as they include all associated metadata in a single query.
+</Info>
+
+## Streaming Messages
+
+Receive new messages in real-time:
+
+<Steps>
+  <Step title="Create a message stream">
+    ```swift
+    let stream = group.streamMessages()
+    ```
+  </Step>
+
+  <Step title="Process incoming messages">
+    ```swift
+    for try await message in stream {
+        print("New message from: \(message.senderInboxId)")
+        print("Content: \(message.content())")
+        
+        // Update your UI
+        await MainActor.run {
+            displayMessage(message)
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Handle stream closure">
+    ```swift
+    let stream = group.streamMessages {
+        print("Stream closed")
+        // Reconnect or notify user
+    }
+    ```
+  </Step>
+</Steps>
+
+### Stop Streaming
+
+End the message stream when no longer needed:
+
+```swift
+group.endStream()
+```
+
+## Streaming All Messages
+
+Stream messages from all conversations:
+
+```swift
+let stream = client.conversations.streamAllMessages()
+
+for try await message in stream {
+    // Determine which conversation the message belongs to
+    let conversationId = message.conversationId
+    
+    // Handle the message
+    processMessage(message, in: conversationId)
+}
+```
+
+### Filter Stream by Type
+
+Stream only from groups or DMs:
+
+```swift
+// Only group messages
+let groupStream = client.conversations.streamAllMessages(
+    type: .groups
+)
+
+// Only DM messages
+let dmStream = client.conversations.streamAllMessages(
+    type: .dms
+)
+```
+
+### Filter by Consent State
+
+Stream only from allowed conversations:
+
+```swift
+let stream = client.conversations.streamAllMessages(
+    consentStates: [.allowed]
+)
+```
+
+## Decoding Message Content
+
+### Text Messages
+
+```swift
+let textContent: String = try message.content()
+print(textContent)
+```
+
+### Attachments
+
+```swift
+if message.contentType == ContentTypeAttachment {
+    let attachment: Attachment = try message.content()
+    
+    print("Filename: \(attachment.filename)")
+    print("MIME type: \(attachment.mimeType)")
+    
+    // Save or display the data
+    try attachment.data.write(to: destinationURL)
+}
+```
+
+### Remote Attachments
+
+```swift
+if message.contentType == ContentTypeRemoteAttachment {
+    let remoteAttachment: RemoteAttachment = try message.content()
+    
+    // Download and decrypt the content
+    let encodedContent = try await remoteAttachment.content()
+    let attachment: Attachment = try encodedContent.decoded()
+    
+    // Use the attachment
+    displayImage(attachment.data)
+}
+```
+
+### Reactions
+
+```swift
+if message.contentType == ContentTypeReaction {
+    let reaction: Reaction = try message.content()
+    
+    print("Reacted to: \(reaction.reference)")
+    print("Emoji: \(reaction.content)")
+    print("Action: \(reaction.action)") // .added or .removed
+}
+```
+
+## Count Messages
+
+Get message counts without fetching all messages:
+
+```swift
+let totalMessages = try group.countMessages()
+
+let recentMessages = try group.countMessages(
+    afterNs: timestamp
+)
+
+let publishedCount = try group.countMessages(
+    deliveryStatus: .published
+)
+```
+
+## Last Message
+
+Quickly access the most recent message:
+
+```swift
+if let lastMessage = try await group.lastMessage() {
+    print("Last message: \(lastMessage.content())")
+    print("Sent at: \(lastMessage.sentAt)")
+}
+```
+
+## Finding Specific Messages
+
+Find a message by its ID:
+
+```swift
+if let message = try client.conversations.findMessage(
+    messageId: messageId
+) {
+    print("Found message: \(message.content())")
+}
+
+// For enriched messages
+if let enrichedMessage = try client.conversations.findEnrichedMessage(
+    messageId: messageId
+) {
+    print("Found with reactions: \(enrichedMessage.reactions.count)")
+}
+```
+
+## Processing Streamed Messages
+
+Process messages from the network stream:
+
+```swift
+// When receiving a message envelope from push notification
+let message = try await group.processMessage(
+    messageBytes: envelopeData
+)
+
+if let message = message {
+    // Display the message
+    showNotification(message)
+}
+```
+
+## Streaming Message Deletions
+
+Monitor when messages are deleted or expire:
+
+```swift
+let deletionStream = client.conversations.streamMessageDeletions()
+
+for try await deletedMessage in deletionStream {
+    // Remove from UI
+    await MainActor.run {
+        removeMessage(messageId: deletedMessage.id)
+    }
+}
+```
+
+## Error Handling
+
+Handle common message retrieval errors:
+
+```swift
+do {
+    let messages = try await group.messages()
+    displayMessages(messages)
+} catch {
+    print("Failed to fetch messages: \(error)")
+    // Show error state in UI
+}
+```
+
+## Message Properties
+
+Access message metadata:
+
+```swift
+for message in messages {
+    // Message identification
+    let id = message.id
+    let conversationId = message.conversationId
+    
+    // Timing
+    let sentAt = message.sentAt
+    let sentAtNs = message.sentAtNs
+    
+    // Sender information
+    let senderInboxId = message.senderInboxId
+    let senderInstallationId = message.senderInstallationId
+    
+    // Content type
+    let contentType = message.contentType
+    
+    // Delivery status
+    let deliveryStatus = message.deliveryStatus
+}
+```
+
+## Best Practices
+
+1. **Use enriched messages for UI** - They include reactions and metadata
+2. **Implement pagination** - Don't load all messages at once
+3. **Stream for real-time updates** - Provide live messaging experience
+4. **Handle errors gracefully** - Network issues are common
+5. **Cache messages locally** - XMTP provides local database storage
+6. **Filter appropriately** - Exclude system messages from user views
+7. **Close streams** - End streams when views are dismissed
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Managing Groups" icon="users" href="/guides/managing-groups">
+    Create and manage group conversations
+  </Card>
+  <Card title="Content Codecs" icon="puzzle-piece" href="/guides/content-codecs">
+    Learn about different content types
+  </Card>
+</CardGroup>

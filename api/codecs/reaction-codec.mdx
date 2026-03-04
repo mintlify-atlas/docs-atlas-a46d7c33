@@ -1,0 +1,314 @@
+---
+title: ReactionCodec
+description: Codec for encoding and decoding message reactions
+---
+
+## Overview
+
+The `ReactionCodec` enables users to react to messages with emoji or custom reactions, supporting both adding and removing reactions.
+
+## Content Type
+
+```swift
+public let ContentTypeReaction = ContentTypeID(
+    authorityID: "xmtp.org",
+    typeID: "reaction",
+    versionMajor: 1,
+    versionMinor: 0
+)
+```
+
+## Data Structures
+
+### Reaction
+
+```swift
+public struct Reaction: Codable {
+    public var reference: String
+    public var referenceInboxId: String?
+    public var action: ReactionAction
+    public var content: String
+    public var schema: ReactionSchema
+    
+    public init(
+        reference: String,
+        action: ReactionAction,
+        content: String,
+        schema: ReactionSchema,
+        referenceInboxId: String = ""
+    )
+}
+```
+
+**Properties:**
+- `reference`: The ID of the message being reacted to
+- `referenceInboxId`: Optional inbox ID of the referenced message sender
+- `action`: Whether the reaction is being added or removed
+- `content`: The reaction content (emoji or custom string)
+- `schema`: The type of reaction schema being used
+
+### ReactionAction
+
+```swift
+public enum ReactionAction: String, Codable {
+    case added
+    case removed
+    case unknown
+}
+```
+
+**Cases:**
+- `added`: Reaction is being added to a message
+- `removed`: Reaction is being removed from a message
+- `unknown`: Unknown action (fallback)
+
+### ReactionSchema
+
+```swift
+public enum ReactionSchema: String, Codable {
+    case unicode
+    case shortcode
+    case custom
+    case unknown
+}
+```
+
+**Cases:**
+- `unicode`: Standard Unicode emoji (e.g., "👍", "❤️")
+- `shortcode`: Emoji shortcode (e.g., ":thumbsup:", ":heart:")
+- `custom`: Custom reaction string
+- `unknown`: Unknown schema (fallback)
+
+### ReactionCodec
+
+```swift
+public struct ReactionCodec: ContentCodec {
+    public typealias T = Reaction
+    public var contentType = ContentTypeReaction
+}
+```
+
+## Methods
+
+### encode
+
+Encodes a reaction into `EncodedContent`.
+
+```swift
+public func encode(content: Reaction) throws -> EncodedContent
+```
+
+**Parameters:**
+- `content`: The reaction to encode
+
+**Returns:** `EncodedContent` with JSON-encoded reaction
+
+### decode
+
+Decodes `EncodedContent` back into a reaction.
+
+```swift
+public func decode(content: EncodedContent) throws -> Reaction
+```
+
+**Parameters:**
+- `content`: The encoded content to decode
+
+**Returns:** The decoded `Reaction`
+
+**Note:** Supports both canonical JSON format and legacy parameter-based format
+
+### fallback
+
+Provides fallback text for clients that don't support reactions.
+
+```swift
+public func fallback(content: Reaction) throws -> String?
+```
+
+**Returns:** A human-readable description of the reaction action
+- Added: "Reacted \"[emoji]\" to an earlier message"
+- Removed: "Removed \"[emoji]\" from an earlier message"
+- Unknown: `nil`
+
+### shouldPush
+
+Determines if this content should trigger a push notification.
+
+```swift
+public func shouldPush(content: Reaction) throws -> Bool
+```
+
+**Returns:** `false` (reactions typically don't trigger push notifications)
+
+## Usage
+
+### Registering the Codec
+
+```swift
+let client = try await Client.create(account: account)
+client.register(codec: ReactionCodec())
+```
+
+### Adding a Reaction
+
+```swift
+// React with a Unicode emoji
+let reaction = Reaction(
+    reference: message.id,
+    action: .added,
+    content: "👍",
+    schema: .unicode
+)
+
+try await conversation.send(
+    content: reaction,
+    options: .init(contentType: ContentTypeReaction)
+)
+```
+
+### Removing a Reaction
+
+```swift
+let reaction = Reaction(
+    reference: message.id,
+    action: .removed,
+    content: "👍",
+    schema: .unicode
+)
+
+try await conversation.send(
+    content: reaction,
+    options: .init(contentType: ContentTypeReaction)
+)
+```
+
+### Using Shortcode Schema
+
+```swift
+let reaction = Reaction(
+    reference: message.id,
+    action: .added,
+    content: ":heart:",
+    schema: .shortcode
+)
+
+try await conversation.send(
+    content: reaction,
+    options: .init(contentType: ContentTypeReaction)
+)
+```
+
+### Custom Reactions
+
+```swift
+let reaction = Reaction(
+    reference: message.id,
+    action: .added,
+    content: "custom-reaction-id",
+    schema: .custom
+)
+
+try await conversation.send(
+    content: reaction,
+    options: .init(contentType: ContentTypeReaction)
+)
+```
+
+### Receiving Reactions
+
+```swift
+for try await message in conversation.streamMessages() {
+    if message.encodedContent.type == ContentTypeReaction {
+        let reaction: Reaction = try message.content()
+        
+        switch reaction.action {
+        case .added:
+            print("\(message.senderAddress) reacted with \(reaction.content)")
+            // Update UI to show reaction on message with ID: reaction.reference
+            
+        case .removed:
+            print("\(message.senderAddress) removed reaction \(reaction.content)")
+            // Update UI to remove reaction from message with ID: reaction.reference
+            
+        case .unknown:
+            print("Unknown reaction action")
+        }
+    }
+}
+```
+
+### Building a Reaction UI
+
+```swift
+class ReactionManager {
+    // Track reactions per message
+    private var reactions: [String: [String: Set<String>]] = [:]
+    
+    func handleReaction(_ reaction: Reaction, from sender: String) {
+        let messageId = reaction.reference
+        let emoji = reaction.content
+        
+        if reactions[messageId] == nil {
+            reactions[messageId] = [:]
+        }
+        
+        if reactions[messageId]![emoji] == nil {
+            reactions[messageId]![emoji] = Set()
+        }
+        
+        switch reaction.action {
+        case .added:
+            reactions[messageId]![emoji]!.insert(sender)
+        case .removed:
+            reactions[messageId]![emoji]!.remove(sender)
+        case .unknown:
+            break
+        }
+    }
+    
+    func getReactions(for messageId: String) -> [String: Int] {
+        guard let messageReactions = reactions[messageId] else {
+            return [:]
+        }
+        
+        return messageReactions.mapValues { $0.count }
+    }
+}
+```
+
+## Encoded Format
+
+The codec produces `EncodedContent` with:
+- **type**: `ContentTypeReaction`
+- **content**: JSON-encoded `Reaction` object
+- **parameters**: None (modern format)
+
+### Legacy Format
+
+For backward compatibility, the decoder also supports:
+- **content**: UTF-8 encoded reaction content string
+- **parameters**:
+  - `reference`: Message ID
+  - `action`: "added" or "removed"
+  - `schema`: "unicode", "shortcode", or "custom"
+
+## Notes
+
+<Info>
+Reactions don't trigger push notifications by default (`shouldPush` returns `false`). This prevents notification spam when multiple users react to a message.
+</Info>
+
+<Tip>
+Use the `referenceInboxId` field to track which inbox the referenced message belongs to, useful in group conversations.
+</Tip>
+
+## Common Emoji Examples
+
+| Emoji | Unicode | Shortcode |
+|-------|---------|----------|
+| 👍 | U+1F44D | :thumbsup: |
+| ❤️ | U+2764 | :heart: |
+| 😂 | U+1F602 | :joy: |
+| 🎉 | U+1F389 | :tada: |
+| 🔥 | U+1F525 | :fire: |

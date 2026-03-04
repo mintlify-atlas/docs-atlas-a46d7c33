@@ -1,0 +1,386 @@
+---
+title: Consent Preferences
+description: Manage user consent and privacy preferences for conversations
+---
+
+XMTP's consent system allows users to control which conversations they want to participate in. Consent preferences can be set at the conversation level or for specific inbox IDs.
+
+## Consent States
+
+XMTP supports three consent states:
+
+```swift
+public enum ConsentState: String, Codable {
+    case allowed   // User has explicitly allowed
+    case denied    // User has explicitly blocked
+    case unknown   // No preference set (default)
+}
+```
+
+## Consent Records
+
+### Conversation Consent
+
+Set consent for a specific conversation:
+
+```swift
+let record = ConsentRecord.conversationId(
+    conversationId: group.id,
+    type: .allowed
+)
+
+try await client.preferences.setConsentState(entries: [record])
+```
+
+### Inbox ID Consent
+
+Set consent for all conversations with a specific inbox ID:
+
+```swift
+let record = ConsentRecord.inboxId(
+    "inboxId123",
+    type: .denied
+)
+
+try await client.preferences.setConsentState(entries: [record])
+```
+
+### Batch Consent Updates
+
+Update multiple consent preferences at once:
+
+```swift
+let records = [
+    ConsentRecord.conversationId(groupId1, type: .allowed),
+    ConsentRecord.conversationId(groupId2, type: .allowed),
+    ConsentRecord.inboxId(spammerInboxId, type: .denied)
+]
+
+try await client.preferences.setConsentState(entries: records)
+```
+
+## Checking Consent State
+
+### Conversation Consent
+
+Check the consent state for a specific conversation:
+
+```swift
+let state = try await client.preferences.conversationState(
+    conversationId: group.id
+)
+
+switch state {
+case .allowed:
+    print("Conversation is allowed")
+case .denied:
+    print("Conversation is blocked")
+case .unknown:
+    print("No consent preference set")
+}
+```
+
+### Inbox ID Consent
+
+Check the consent state for an inbox ID:
+
+```swift
+let state = try await client.preferences.inboxIdState(
+    inboxId: "inboxId123"
+)
+```
+
+### Conversation-Level Consent
+
+Access consent state directly from a conversation:
+
+```swift
+// For groups
+let groupConsent = try group.consentState()
+
+// For DMs
+let dmConsent = try dm.consentState()
+```
+
+## Updating Consent State
+
+### Allow a Conversation
+
+```swift
+// Update directly on the conversation
+try await group.updateConsentState(state: .allowed)
+
+// Or through preferences
+let record = ConsentRecord.conversationId(group.id, type: .allowed)
+try await client.preferences.setConsentState(entries: [record])
+```
+
+### Block a Conversation
+
+```swift
+try await group.updateConsentState(state: .denied)
+```
+
+### Block an Inbox ID
+
+Block all conversations from a specific user:
+
+```swift
+let record = ConsentRecord.inboxId(spammerInboxId, type: .denied)
+try await client.preferences.setConsentState(entries: [record])
+```
+
+## Filtering by Consent
+
+### List Only Allowed Conversations
+
+```swift
+let allowedGroups = try client.conversations.listGroups(
+    consentStates: [.allowed]
+)
+
+let allowedDms = try client.conversations.listDms(
+    consentStates: [.allowed]
+)
+
+let allowedConversations = try await client.conversations.list(
+    consentStates: [.allowed]
+)
+```
+
+### Exclude Blocked Conversations
+
+```swift
+let activeGroups = try client.conversations.listGroups(
+    consentStates: [.allowed, .unknown]
+)
+```
+
+### Stream Only Allowed Messages
+
+```swift
+let stream = client.conversations.streamAllMessages(
+    consentStates: [.allowed]
+)
+
+for try await message in stream {
+    // Only messages from allowed conversations
+    displayMessage(message)
+}
+```
+
+## Syncing Consent Preferences
+
+Sync consent preferences across devices:
+
+```swift
+// Sync all preferences including consent
+try await client.preferences.sync()
+```
+
+This ensures your consent preferences are consistent across all your devices.
+
+## Streaming Consent Updates
+
+Listen for consent preference changes in real-time:
+
+```swift
+let stream = client.preferences.streamConsent()
+
+for try await record in stream {
+    print("Consent updated:")
+    print("  Type: \(record.entryType)")
+    print("  Value: \(record.value)")
+    print("  State: \(record.consentType)")
+    
+    // Update UI based on consent change
+    await MainActor.run {
+        updateConversationList()
+    }
+}
+```
+
+### Handle Stream Closure
+
+```swift
+let stream = client.preferences.streamConsent {
+    print("Consent stream closed")
+    // Reconnect or notify user
+}
+```
+
+## Streaming Preference Updates
+
+Stream all preference updates (including HMAC keys):
+
+```swift
+let stream = client.preferences.streamPreferenceUpdates()
+
+for try await preferenceType in stream {
+    switch preferenceType {
+    case .hmac_keys:
+        print("HMAC keys updated")
+        // Refresh push notification subscriptions
+        try await updatePushSubscriptions()
+    }
+}
+```
+
+## Syncing Conversations by Consent
+
+Sync only conversations with specific consent states:
+
+```swift
+let summary = try await client.conversations.syncAllConversations(
+    consentStates: [.allowed]
+)
+
+print("Synced \(summary.numSynced) of \(summary.numEligible) allowed conversations")
+```
+
+## Practical Consent Workflows
+
+### Allow List Pattern
+
+Only show conversations that are explicitly allowed:
+
+```swift
+// When a new conversation is created
+let group = try await client.conversations.newGroup(with: inboxIds)
+
+// Prompt user for consent
+let shouldAllow = await promptUserConsent(for: group)
+
+if shouldAllow {
+    try await group.updateConsentState(state: .allowed)
+} else {
+    try await group.updateConsentState(state: .denied)
+}
+```
+
+### Auto-Allow Pattern
+
+Automatically allow conversations the user creates:
+
+```swift
+let group = try await client.conversations.newGroup(with: inboxIds)
+
+// Auto-allow since user initiated
+try await group.updateConsentState(state: .allowed)
+```
+
+### Block List Pattern
+
+Maintain a list of blocked users:
+
+```swift
+func blockUser(inboxId: String) async throws {
+    // Block all conversations with this user
+    let record = ConsentRecord.inboxId(inboxId, type: .denied)
+    try await client.preferences.setConsentState(entries: [record])
+    
+    // Update UI
+    await MainActor.run {
+        removeConversationsFrom(inboxId: inboxId)
+    }
+}
+
+func unblockUser(inboxId: String) async throws {
+    // Restore to unknown state
+    let record = ConsentRecord.inboxId(inboxId, type: .unknown)
+    try await client.preferences.setConsentState(entries: [record])
+}
+```
+
+### Message Request Pattern
+
+Implement Instagram-style message requests:
+
+```swift
+func getPendingRequests() throws -> [Conversation] {
+    // Get conversations with unknown consent
+    try await client.conversations.list(
+        consentStates: [.unknown]
+    )
+}
+
+func acceptRequest(_ conversation: Conversation) async throws {
+    switch conversation {
+    case .group(let group):
+        try await group.updateConsentState(state: .allowed)
+    case .dm(let dm):
+        try await dm.updateConsentState(state: .allowed)
+    }
+}
+
+func rejectRequest(_ conversation: Conversation) async throws {
+    switch conversation {
+    case .group(let group):
+        try await group.updateConsentState(state: .denied)
+    case .dm(let dm):
+        try await dm.updateConsentState(state: .denied)
+    }
+}
+```
+
+## Consent Record Structure
+
+Consent records contain three key fields:
+
+```swift
+public struct ConsentRecord: Codable, Hashable {
+    public var value: String          // conversationId or inboxId
+    public var entryType: EntryType    // .conversation_id or .inbox_id
+    public var consentType: ConsentState // .allowed, .denied, or .unknown
+}
+```
+
+## Entry Types
+
+Two types of consent entries:
+
+```swift
+public enum EntryType: String, Codable {
+    case conversation_id  // Consent for a specific conversation
+    case inbox_id        // Consent for all conversations with an inbox
+}
+```
+
+## Best Practices
+
+1. **Respect user choices** - Always honor consent preferences
+2. **Sync regularly** - Keep consent state up to date across devices
+3. **Provide clear UI** - Make it easy for users to manage consent
+4. **Handle unknown state** - Decide how to treat unknown consent
+5. **Filter appropriately** - Don't show blocked conversations
+6. **Stream updates** - React to consent changes in real-time
+7. **Batch updates** - Use batch API for multiple consent changes
+
+## Privacy Considerations
+
+- **Consent is private** - Only the user can see their consent preferences
+- **No notification to sender** - Blocking doesn't notify the other party
+- **Applies across devices** - Consent syncs to all user devices
+- **Persistent storage** - Consent preferences are stored locally and remotely
+
+## Error Handling
+
+```swift
+do {
+    try await client.preferences.setConsentState(entries: records)
+} catch {
+    print("Failed to update consent: \(error)")
+    // Retry or notify user
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Managing Groups" icon="users" href="/guides/managing-groups">
+    Apply consent to group conversations
+  </Card>
+  <Card title="Receiving Messages" icon="inbox" href="/guides/receiving-messages">
+    Filter messages by consent state
+  </Card>
+</CardGroup>

@@ -1,0 +1,362 @@
+---
+title: ContentCodec
+description: Protocol for encoding and decoding custom message content types
+---
+
+## Overview
+
+The `ContentCodec` protocol defines the interface for encoding and decoding custom content types in XMTP messages. It enables extensible message content beyond plain text, supporting attachments, reactions, replies, and custom application-specific data.
+
+## Protocol Definition
+
+```swift ContentCodec.swift
+public protocol ContentCodec: Hashable, Equatable {
+    associatedtype T
+    
+    var contentType: ContentTypeID { get }
+    func encode(content: T) throws -> EncodedContent
+    func decode(content: EncodedContent) throws -> T
+    func fallback(content: T) throws -> String?
+    func shouldPush(content: T) throws -> Bool
+}
+```
+
+## Associated Types
+
+### T
+
+The Swift type that this codec encodes and decodes. This can be any type (struct, class, enum) that represents your content.
+
+```swift
+// Example: A codec for image content
+struct ImageCodec: ContentCodec {
+    typealias T = ImageContent  // Your custom type
+    // ...
+}
+```
+
+## Required Properties
+
+### contentType
+
+```swift
+var contentType: ContentTypeID { get }
+```
+
+Identifies this content type with a unique type ID.
+
+**Returns:** A `ContentTypeID` that uniquely identifies this codec
+
+**Example:**
+```swift
+var contentType: ContentTypeID {
+    ContentTypeID(
+        authorityID: "xmtp.org",
+        typeID: "text",
+        versionMajor: 1,
+        versionMinor: 0
+    )
+}
+```
+
+## Required Methods
+
+### encode(content:)
+
+```swift
+func encode(content: T) throws -> EncodedContent
+```
+
+Encodes content of type `T` into the wire format.
+
+**Parameters:**
+- `content`: The content object to encode
+
+**Returns:** An `EncodedContent` protobuf message containing the encoded data
+
+**Throws:** `CodecError.invalidContent` or custom errors if encoding fails
+
+### decode(content:)
+
+```swift
+func decode(content: EncodedContent) throws -> T
+```
+
+Decodes wire format content back into type `T`.
+
+**Parameters:**
+- `content`: The `EncodedContent` protobuf message to decode
+
+**Returns:** The decoded content object of type `T`
+
+**Throws:** `CodecError.invalidContent` or custom errors if decoding fails
+
+### fallback(content:)
+
+```swift
+func fallback(content: T) throws -> String?
+```
+
+Provides a plain text fallback representation for clients that don't support this content type.
+
+**Parameters:**
+- `content`: The content object to create a fallback for
+
+**Returns:** An optional string representation, or `nil` if no fallback is appropriate
+
+**Throws:** Custom errors if fallback generation fails
+
+**Example:**
+```swift
+func fallback(content: Reaction) throws -> String? {
+    return "Reacted with \(content.emoji)"
+}
+```
+
+### shouldPush(content:)
+
+```swift
+func shouldPush(content: T) throws -> Bool
+```
+
+Determines whether messages with this content should trigger push notifications.
+
+**Parameters:**
+- `content`: The content object to evaluate
+
+**Returns:** `true` if push notifications should be sent, `false` otherwise
+
+**Throws:** Custom errors if evaluation fails
+
+## Default Implementations
+
+The protocol extension provides default implementations for common functionality:
+
+```swift
+public extension ContentCodec {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.contentType.authorityID == rhs.contentType.authorityID && 
+        lhs.contentType.typeID == rhs.contentType.typeID
+    }
+    
+    var id: String {
+        contentType.id
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+    
+    var description: String {
+        contentType.description
+    }
+}
+```
+
+## Related Types
+
+### ContentTypeID
+
+```swift
+public typealias ContentTypeID = Xmtp_MessageContents_ContentTypeId
+
+public extension ContentTypeID {
+    init(authorityID: String, typeID: String, versionMajor: Int, versionMinor: Int)
+    
+    var id: String  // "authorityID:typeID:versionMajor.versionMinor"
+    var description: String  // "authorityID/typeID:versionMajor.versionMinor"
+}
+```
+
+### EncodedContent
+
+```swift
+public typealias EncodedContent = Xmtp_MessageContents_EncodedContent
+
+public extension EncodedContent {
+    func decoded<T>() throws -> T
+    func compress(_ compression: EncodedContentCompression) throws -> EncodedContent
+}
+```
+
+### CodecError
+
+```swift
+enum CodecError: String, Error {
+    case invalidContent
+    case codecNotFound
+}
+```
+
+## Implementation Example
+
+### Custom Reaction Codec
+
+```swift
+import Foundation
+
+struct Reaction: Codable {
+    let emoji: String
+    let messageId: String
+    let action: ReactionAction
+    
+    enum ReactionAction: String, Codable {
+        case added
+        case removed
+    }
+}
+
+struct ReactionCodec: ContentCodec {
+    typealias T = Reaction
+    
+    var contentType: ContentTypeID {
+        ContentTypeID(
+            authorityID: "xmtp.org",
+            typeID: "reaction",
+            versionMajor: 1,
+            versionMinor: 0
+        )
+    }
+    
+    func encode(content: Reaction) throws -> EncodedContent {
+        var encoded = EncodedContent()
+        encoded.type = contentType
+        
+        let jsonData = try JSONEncoder().encode(content)
+        encoded.content = jsonData
+        
+        return encoded
+    }
+    
+    func decode(content: EncodedContent) throws -> Reaction {
+        let jsonData = content.content
+        return try JSONDecoder().decode(Reaction.self, from: jsonData)
+    }
+    
+    func fallback(content: Reaction) throws -> String? {
+        switch content.action {
+        case .added:
+            return "Reacted with \(content.emoji)"
+        case .removed:
+            return "Removed \(content.emoji) reaction"
+        }
+    }
+    
+    func shouldPush(content: Reaction) throws -> Bool {
+        // Only send push notifications for added reactions
+        return content.action == .added
+    }
+}
+```
+
+### Custom Location Codec
+
+```swift
+struct Location: Codable {
+    let latitude: Double
+    let longitude: Double
+    let name: String?
+}
+
+struct LocationCodec: ContentCodec {
+    typealias T = Location
+    
+    var contentType: ContentTypeID {
+        ContentTypeID(
+            authorityID: "myapp.example",
+            typeID: "location",
+            versionMajor: 1,
+            versionMinor: 0
+        )
+    }
+    
+    func encode(content: Location) throws -> EncodedContent {
+        var encoded = EncodedContent()
+        encoded.type = contentType
+        encoded.content = try JSONEncoder().encode(content)
+        return encoded
+    }
+    
+    func decode(content: EncodedContent) throws -> Location {
+        try JSONDecoder().decode(Location.self, from: content.content)
+    }
+    
+    func fallback(content: Location) throws -> String? {
+        if let name = content.name {
+            return "Location: \(name)"
+        }
+        return "Location: \(content.latitude), \(content.longitude)"
+    }
+    
+    func shouldPush(content: Location) throws -> Bool {
+        true  // Send push for location shares
+    }
+}
+```
+
+## Registering Codecs
+
+Before using a custom codec, register it with the client:
+
+```swift
+// Register your custom codec
+Client.register(codec: ReactionCodec())
+Client.register(codec: LocationCodec())
+
+// Now you can send and receive messages with these content types
+let reaction = Reaction(
+    emoji: "👍",
+    messageId: "abc123",
+    action: .added
+)
+
+try await conversation.send(
+    content: reaction,
+    options: .init(contentType: ReactionCodec().contentType)
+)
+```
+
+## Built-in Codecs
+
+XMTP iOS SDK includes these built-in codecs:
+
+- **TextCodec** - Plain text messages
+- **AttachmentCodec** - File attachments with metadata
+- **RemoteAttachmentCodec** - References to remotely stored files
+- **ReactionCodec** - Message reactions (emoji)
+- **ReplyCodec** - Message replies/threading
+- **ReadReceiptCodec** - Read receipt indicators
+- **GroupUpdatedCodec** - Group membership change notifications
+- **TransactionReferenceCodec** - Blockchain transaction references
+
+## Compression Support
+
+The `EncodedContent` type supports automatic compression:
+
+```swift
+var encoded = try codec.encode(content: myContent)
+
+// Compress before sending
+encoded = try encoded.compress(.gzip)
+
+// Decompression happens automatically on decode
+let decoded: MyContent = try encodedContent.decoded()
+```
+
+Available compression options:
+- `.deflate` - DEFLATE compression
+- `.gzip` - GZIP compression
+
+## Best Practices
+
+1. **Versioning**: Use semantic versioning in your `ContentTypeID` to support backwards compatibility
+2. **Fallbacks**: Always provide meaningful fallback text for better user experience
+3. **Validation**: Validate content in `encode()` before serialization
+4. **Error Handling**: Throw descriptive errors when encoding/decoding fails
+5. **Authority ID**: Use a domain you control for the `authorityID` to avoid conflicts
+
+## See Also
+
+- [Conversation](/api/conversation) - Sending messages with custom content types
+- [Client](/api/client) - Registering codecs with the client
+- [SigningKey](/api/signing-key) - Authentication protocol for XMTP clients

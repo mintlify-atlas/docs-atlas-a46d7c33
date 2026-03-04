@@ -1,0 +1,394 @@
+---
+title: Content types
+description: Understanding XMTP content types and the codec system for encoding and decoding messages
+---
+
+Content types define how different kinds of data are encoded, decoded, and displayed in XMTP messages. The codec system provides a flexible, extensible way to support text, attachments, reactions, and custom content.
+
+## Overview
+
+Every message in XMTP has a content type that determines how it's encoded for transmission and decoded for display. The SDK includes built-in codecs for common content types and allows you to create custom codecs.
+
+```swift
+// Send with default text codec
+try await conversation.send(content: "Hello!")
+
+// Send with attachment codec
+try await conversation.send(
+  content: attachment,
+  options: .init(contentType: ContentTypeAttachment)
+)
+```
+
+## Content type structure
+
+A content type is identified by three components:
+
+```swift
+public struct ContentTypeID {
+  public let authorityID: String  // e.g., "xmtp.org"
+  public let typeID: String        // e.g., "text"
+  public let versionMajor: UInt    // e.g., 1
+  public let versionMinor: UInt    // e.g., 0
+}
+```
+
+Example content type ID:
+
+```swift
+let textType = ContentTypeID(
+  authorityID: "xmtp.org",
+  typeID: "text",
+  versionMajor: 1,
+  versionMinor: 0
+)
+```
+
+## Built-in content types
+
+### Text
+
+Plain text messages using UTF-8 encoding.
+
+```swift
+try await conversation.send(content: "Hello, world!")
+
+// Decode
+let text: String = try message.content()
+```
+
+**Content type**: `xmtp.org/text:1.0`
+
+### Attachment
+
+Files with metadata (filename, MIME type, and data).
+
+```swift
+let attachment = Attachment(
+  filename: "photo.jpg",
+  mimeType: "image/jpeg",
+  data: imageData
+)
+
+try await conversation.send(
+  content: attachment,
+  options: .init(contentType: ContentTypeAttachment)
+)
+
+// Decode
+let received: Attachment = try message.content()
+print("Filename: \(received.filename)")
+print("Size: \(received.data.count) bytes")
+```
+
+**Content type**: `xmtp.org/attachment:1.0`
+
+### Remote attachment
+
+Encrypted files stored on external services with a reference in the message.
+
+```swift
+let remoteAttachment = try RemoteAttachment.encodeEncrypted(
+  content: originalData,
+  codec: AttachmentCodec()
+)
+
+// Upload encrypted data to your storage
+let url = try await uploadToStorage(remoteAttachment.payload)
+
+// Send the reference
+try await conversation.send(
+  content: RemoteAttachment(
+    url: url,
+    contentDigest: remoteAttachment.digest,
+    secret: remoteAttachment.secret,
+    salt: remoteAttachment.salt,
+    nonce: remoteAttachment.nonce,
+    scheme: .https
+  ),
+  options: .init(contentType: ContentTypeRemoteAttachment)
+)
+
+// Decode and decrypt
+let remote: RemoteAttachment = try message.content()
+let encryptedData = try await downloadFromStorage(remote.url)
+let decrypted = try remote.decryptPayload(encryptedData)
+```
+
+**Content type**: `xmtp.org/remoteStaticAttachment:1.0`
+
+### Reaction
+
+Emoji reactions to messages.
+
+```swift
+let reaction = Reaction(
+  reference: messageId,
+  action: .added,
+  schema: .unicode,
+  content: "👍"
+)
+
+try await conversation.send(
+  content: reaction,
+  options: .init(contentType: ContentTypeReaction)
+)
+
+// Decode
+let received: Reaction = try message.content()
+print("Reacted with: \(received.content)")
+```
+
+**Content type**: `xmtp.org/reaction:1.0`
+
+### Reply
+
+Threaded replies to specific messages.
+
+```swift
+let reply = Reply(
+  reference: originalMessageId,
+  content: "I agree!"
+)
+
+try await conversation.send(
+  content: reply,
+  options: .init(contentType: ContentTypeReply)
+)
+
+// Decode
+let received: Reply = try message.content()
+print("Replying to: \(received.reference)")
+print("Reply: \(received.content)")
+```
+
+**Content type**: `xmtp.org/reply:1.0`
+
+### Read receipt
+
+Indicators that a message has been read.
+
+```swift
+try await conversation.send(
+  content: ReadReceipt(),
+  options: .init(contentType: ContentTypeReadReceipt)
+)
+```
+
+**Content type**: `xmtp.org/readReceipt:1.0`
+
+<Note>
+Read receipts are typically sent silently without displaying in the message list.
+</Note>
+
+## The codec protocol
+
+Codecs implement the `ContentCodec` protocol to handle encoding and decoding.
+
+```swift
+public protocol ContentCodec {
+  associatedtype T
+  
+  var contentType: ContentTypeID { get }
+  
+  func encode(content: T, client: Client) throws -> EncodedContent
+  func decode(content: EncodedContent, client: Client) throws -> T
+  func fallback(content: T) -> String?
+  func shouldPush(content: T) -> Bool
+}
+```
+
+### Required methods
+
+- **`contentType`**: The content type identifier
+- **`encode`**: Convert Swift type to encoded bytes
+- **`decode`**: Convert encoded bytes to Swift type
+- **`fallback`**: Provide text fallback for unsupported clients
+- **`shouldPush`**: Whether to trigger push notifications
+
+## Custom content types
+
+Create custom codecs for application-specific content.
+
+### Define the content type
+
+```swift
+struct Poll: Codable {
+  let question: String
+  let options: [String]
+  let endDate: Date
+}
+
+let ContentTypePoll = ContentTypeID(
+  authorityID: "myapp.com",
+  typeID: "poll",
+  versionMajor: 1,
+  versionMinor: 0
+)
+```
+
+### Implement the codec
+
+```swift
+struct PollCodec: ContentCodec {
+  typealias T = Poll
+  
+  var contentType: ContentTypeID {
+    ContentTypePoll
+  }
+  
+  func encode(content: Poll, client: Client) throws -> EncodedContent {
+    let encoder = JSONEncoder()
+    let data = try encoder.encode(content)
+    
+    return EncodedContent(
+      type: contentType,
+      parameters: [:],
+      content: data
+    )
+  }
+  
+  func decode(content: EncodedContent, client: Client) throws -> Poll {
+    let decoder = JSONDecoder()
+    return try decoder.decode(Poll.self, from: content.content)
+  }
+  
+  func fallback(content: Poll) -> String? {
+    return "📊 Poll: \(content.question)"
+  }
+  
+  func shouldPush(content: Poll) -> Bool {
+    return true
+  }
+}
+```
+
+### Register the codec
+
+```swift
+Client.register(codec: PollCodec())
+
+let client = try await Client.create(
+  account: account,
+  options: options
+)
+```
+
+### Use the custom codec
+
+```swift
+let poll = Poll(
+  question: "Best programming language?",
+  options: ["Swift", "Kotlin", "TypeScript"],
+  endDate: Date().addingTimeInterval(86400)
+)
+
+try await conversation.send(
+  content: poll,
+  options: .init(contentType: ContentTypePoll)
+)
+
+// Decode
+let received: Poll = try message.content()
+print("Poll question: \(received.question)")
+```
+
+See [Custom codecs](/advanced/custom-codecs) for a detailed guide.
+
+## Fallback content
+
+Fallback content is displayed when a receiver doesn't support a content type.
+
+```swift
+func fallback(content: Attachment) -> String? {
+  return "[Attachment: \(content.filename)]"
+}
+```
+
+Clients without the attachment codec will see:
+```
+[Attachment: photo.jpg]
+```
+
+## Codec registry
+
+The SDK maintains a global codec registry.
+
+```swift
+// Register a codec
+Client.register(codec: MyCustomCodec())
+
+// Codecs are shared across all clients
+let client1 = try await Client.create(...)
+let client2 = try await Client.create(...)
+// Both clients can use MyCustomCodec
+```
+
+<Warning>
+Register codecs before creating any clients. Codecs registered after client creation won't be available to existing clients.
+</Warning>
+
+## Compression
+
+Content can be compressed before transmission.
+
+```swift
+let options = SendOptions(
+  contentType: ContentTypeAttachment,
+  compression: .gzip
+)
+
+try await conversation.send(
+  content: largeAttachment,
+  options: options
+)
+```
+
+Supported compression algorithms:
+- `.gzip`
+- `.deflate`
+
+## Push notifications
+
+Control whether a content type triggers push notifications.
+
+```swift
+func shouldPush(content: ReadReceipt) -> Bool {
+  return false // Read receipts don't trigger notifications
+}
+
+func shouldPush(content: String) -> Bool {
+  return true // Text messages do trigger notifications
+}
+```
+
+## Best practices
+
+<CardGroup cols={2}>
+  <Card title="Provide meaningful fallback" icon="message">
+    Always implement fallback text so users with older clients can understand the message.
+  </Card>
+  <Card title="Version your content types" icon="code-branch">
+    Use semantic versioning for content types to handle breaking changes.
+  </Card>
+  <Card title="Keep encoding efficient" icon="gauge-high">
+    Use compact encodings for custom types to minimize message size.
+  </Card>
+  <Card title="Register codecs early" icon="clock">
+    Register custom codecs before creating clients.
+  </Card>
+</CardGroup>
+
+## Related documentation
+
+<CardGroup cols={3}>
+  <Card title="Custom codecs" icon="wrench" href="/advanced/custom-codecs">
+    Detailed guide to creating custom content types
+  </Card>
+  <Card title="Content codec API" icon="code" href="/api/content-codec">
+    API reference for the ContentCodec protocol
+  </Card>
+  <Card title="Built-in codecs" icon="box" href="/api/codecs/text-codec">
+    API reference for built-in content types
+  </Card>
+</CardGroup>

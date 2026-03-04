@@ -1,0 +1,149 @@
+---
+title: SendOptions
+description: Configuration options for sending messages
+---
+
+`SendOptions` is a struct that provides configuration options when sending messages. It allows you to specify compression, content type, and message ephemerality.
+
+## Properties
+
+<ParamField path="compression" type="EncodedContentCompression?" default="nil">
+  Optional compression algorithm to apply to the message content before sending.
+  
+  - `.deflate` - DEFLATE compression (ZLIB)
+  - `.gzip` - GZIP compression (LZFSE)
+  
+  Compression can reduce message size for large content.
+</ParamField>
+
+<ParamField path="contentType" type="ContentTypeID?" default="nil">
+  Optional content type identifier for the message. When specified, this overrides the default content type.
+  
+  `ContentTypeID` has the following properties:
+  - `authorityID`: String (e.g., "xmtp.org")
+  - `typeID`: String (e.g., "text", "attachment")
+  - `versionMajor`: UInt32
+  - `versionMinor`: UInt32
+</ParamField>
+
+<ParamField path="ephemeral" type="Bool" default="false">
+  Whether the message should be ephemeral (not persisted to the local database).
+  
+  When `true`, the message is sent but not saved locally. This is useful for transient messages that don't need to be retained.
+</ParamField>
+
+## Initializer
+
+```swift
+public init(
+    compression: EncodedContentCompression? = nil,
+    contentType: ContentTypeID? = nil,
+    ephemeral: Bool = false
+)
+```
+
+## Example Usage
+
+### Basic Usage
+
+```swift
+import XMTP
+
+// Send with default options (no compression, not ephemeral)
+let options = SendOptions()
+try await conversation.send(
+    content: "Hello, World!",
+    options: options
+)
+```
+
+### With Compression
+
+```swift
+// Send with GZIP compression
+let options = SendOptions(compression: .gzip)
+try await conversation.send(
+    content: largeContent,
+    options: options
+)
+```
+
+### Ephemeral Message
+
+```swift
+// Send ephemeral message (not saved locally)
+let options = SendOptions(ephemeral: true)
+try await conversation.send(
+    content: "This won't be stored",
+    options: options
+)
+```
+
+### Custom Content Type
+
+```swift
+// Send with custom content type
+let contentType = ContentTypeID(
+    authorityID: "example.com",
+    typeID: "custom",
+    versionMajor: 1,
+    versionMinor: 0
+)
+
+let options = SendOptions(contentType: contentType)
+try await conversation.send(
+    content: customContent,
+    options: options
+)
+```
+
+### Combined Options
+
+```swift
+// Combine multiple options
+let options = SendOptions(
+    compression: .deflate,
+    ephemeral: true
+)
+
+try await conversation.send(
+    content: "Compressed ephemeral message",
+    options: options
+)
+```
+
+## EncodedContentCompression
+
+The compression enum provides two compression algorithms:
+
+### `.deflate`
+
+Uses ZLIB compression (COMPRESSION_ZLIB). Good general-purpose compression with moderate compression ratio and speed.
+
+### `.gzip`
+
+Uses LZFSE compression. Optimized for Apple platforms with good compression ratio.
+
+## ContentTypeID
+
+A content type identifier consists of:
+
+- **authorityID**: The organization or domain that defines the content type (e.g., "xmtp.org")
+- **typeID**: The specific type identifier (e.g., "text", "attachment", "reaction")
+- **versionMajor**: Major version number
+- **versionMinor**: Minor version number
+
+Built-in content types include:
+- `ContentTypeText` - Plain text messages
+- `ContentTypeAttachment` - File attachments
+- `ContentTypeReaction` - Message reactions
+- `ContentTypeReply` - Reply messages
+- `ContentTypeReadReceipt` - Read receipts
+- `ContentTypeRemoteAttachment` - Remote file attachments
+
+## See Also
+
+- [Conversation.send()](./conversation#send)
+- [Group.send()](./group#send)
+- [Dm.send()](./dm#send)
+- [Content Codecs](./content-codec)

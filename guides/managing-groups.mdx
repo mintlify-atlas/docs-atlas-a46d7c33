@@ -1,0 +1,481 @@
+---
+title: Managing Groups
+description: Create, configure, and manage group conversations
+---
+
+XMTP supports group messaging through MLS (Message Layer Security) protocol. Groups enable multi-party conversations with fine-grained permissions and administrative controls.
+
+## Creating Groups
+
+### Basic Group Creation
+
+Create a group with inbox IDs:
+
+```swift
+let group = try await client.conversations.newGroup(
+    with: ["inboxId1", "inboxId2", "inboxId3"],
+    name: "Team Chat",
+    imageUrl: "https://example.com/team-avatar.jpg",
+    description: "Our team coordination channel"
+)
+```
+
+### Create with Public Identities
+
+Use public identities instead of inbox IDs:
+
+```swift
+let identity1 = PublicIdentity(
+    kind: .ethereum,
+    identifier: "0x1234..."
+)
+let identity2 = PublicIdentity(
+    kind: .ethereum,
+    identifier: "0x5678..."
+)
+
+let group = try await client.conversations.newGroupWithIdentities(
+    with: [identity1, identity2],
+    name: "Friends"
+)
+```
+
+## Group Permissions
+
+### Permission Preconfigurations
+
+Use built-in permission templates:
+
+```swift
+// All members can add/remove members and update metadata
+let group = try await client.conversations.newGroup(
+    with: inboxIds,
+    permissions: .allMembers
+)
+
+// Only admins can manage the group
+let group = try await client.conversations.newGroup(
+    with: inboxIds,
+    permissions: .adminOnly
+)
+```
+
+### Custom Permissions
+
+Define granular permission policies:
+
+```swift
+let customPermissions = PermissionPolicySet(
+    addMemberPolicy: .admin,
+    removeMemberPolicy: .admin,
+    addAdminPolicy: .superAdmin,
+    removeAdminPolicy: .superAdmin,
+    updateGroupNamePolicy: .allow,
+    updateGroupDescriptionPolicy: .allow,
+    updateGroupImageUrlSquarePolicy: .admin
+)
+
+let group = try await client.conversations.newGroupCustomPermissions(
+    with: inboxIds,
+    permissionPolicySet: customPermissions,
+    name: "Custom Permissions Group"
+)
+```
+
+## Disappearing Messages
+
+Configure messages to automatically disappear:
+
+```swift
+let settings = DisappearingMessageSettings(
+    disappearStartingAtNs: Date().millisecondsSinceEpoch,
+    retentionDurationInNs: 24 * 60 * 60 * 1_000_000_000 // 24 hours
+)
+
+let group = try await client.conversations.newGroup(
+    with: inboxIds,
+    disappearingMessageSettings: settings
+)
+```
+
+### Update Disappearing Message Settings
+
+```swift
+// Enable disappearing messages
+try await group.updateDisappearingMessageSettings(settings)
+
+// Disable disappearing messages
+try await group.clearDisappearingMessageSettings()
+
+// Check if enabled
+let isEnabled = try group.isDisappearingMessagesEnabled()
+```
+
+## Managing Members
+
+### Add Members
+
+<Steps>
+  <Step title="Add members by inbox ID">
+    ```swift
+    let result = try await group.addMembers(
+        inboxIds: ["newMemberInboxId"]
+    )
+    
+    // Check results
+    for success in result.successfulAdds {
+        print("Added: \(success)")
+    }
+    
+    for failure in result.failedAdds {
+        print("Failed to add: \(failure)")
+    }
+    ```
+  </Step>
+
+  <Step title="Add members by identity">
+    ```swift
+    let identity = PublicIdentity(
+        kind: .ethereum,
+        identifier: "0xabcd..."
+    )
+    
+    let result = try await group.addMembersByIdentity(
+        identities: [identity]
+    )
+    ```
+  </Step>
+</Steps>
+
+### Remove Members
+
+```swift
+// Remove by inbox ID
+try await group.removeMembers(
+    inboxIds: ["memberToRemove"]
+)
+
+// Remove by identity
+try await group.removeMembersByIdentity(
+    identities: [identity]
+)
+```
+
+### List Members
+
+```swift
+let members = try await group.members
+
+for member in members {
+    print("Inbox ID: \(member.inboxId)")
+    print("Installation IDs: \(member.installationIds)")
+    print("Account addresses: \(member.accountAddresses)")
+    print("Permission level: \(member.permissionLevel)")
+}
+```
+
+### Get Peer Inbox IDs
+
+Get all member inbox IDs except your own:
+
+```swift
+let peerInboxIds = try await group.peerInboxIds
+```
+
+## Administrative Controls
+
+### Admins
+
+```swift
+// Add an admin
+try await group.addAdmin(inboxId: "memberId")
+
+// Remove an admin
+try await group.removeAdmin(inboxId: "memberId")
+
+// Check if someone is an admin
+let isAdmin = try group.isAdmin(inboxId: "memberId")
+
+// List all admins
+let admins = try group.listAdmins()
+```
+
+### Super Admins
+
+Super admins have the highest level of control:
+
+```swift
+// Add a super admin
+try await group.addSuperAdmin(inboxId: "memberId")
+
+// Remove a super admin
+try await group.removeSuperAdmin(inboxId: "memberId")
+
+// Check if someone is a super admin
+let isSuperAdmin = try group.isSuperAdmin(inboxId: "memberId")
+
+// List all super admins
+let superAdmins = try group.listSuperAdmins()
+```
+
+### Check Creator Status
+
+```swift
+let isCreator = try await group.isCreator()
+let creatorInboxId = try await group.creatorInboxId()
+let addedByInboxId = try group.addedByInboxId()
+```
+
+## Updating Group Metadata
+
+### Update Group Name
+
+```swift
+try await group.updateName(name: "New Group Name")
+
+// Get current name
+let currentName = try group.name()
+```
+
+### Update Group Image
+
+```swift
+try await group.updateImageUrl(
+    imageUrl: "https://example.com/new-avatar.jpg"
+)
+
+// Get current image URL
+let imageUrl = try group.imageUrl()
+```
+
+### Update Group Description
+
+```swift
+try await group.updateDescription(
+    description: "Updated group description"
+)
+
+// Get current description
+let description = try group.description()
+```
+
+### Update App Data
+
+Store custom application data:
+
+```swift
+let appData = "{\"theme\": \"dark\", \"notifications\": true}"
+try await group.updateAppData(appData: appData)
+
+// Get current app data
+let currentAppData = try group.appData()
+```
+
+## Permission Management
+
+### Update Specific Permissions
+
+```swift
+// Update who can add members
+try await group.updateAddMemberPermission(
+    newPermissionOption: .admin
+)
+
+// Update who can remove members
+try await group.updateRemoveMemberPermission(
+    newPermissionOption: .admin
+)
+
+// Update who can add admins
+try await group.updateAddAdminPermission(
+    newPermissionOption: .superAdmin
+)
+
+// Update who can update the name
+try await group.updateNamePermission(
+    newPermissionOption: .allow
+)
+
+// Update who can update the description
+try await group.updateDescriptionPermission(
+    newPermissionOption: .admin
+)
+
+// Update who can update the image
+try await group.updateImageUrlPermission(
+    newPermissionOption: .admin
+)
+```
+
+**Permission options:**
+- `.allow` - All members can perform the action
+- `.deny` - No one can perform the action
+- `.admin` - Only admins can perform the action
+- `.superAdmin` - Only super admins can perform the action
+- `.creator` - Only the group creator can perform the action
+
+### View Current Permissions
+
+```swift
+let permissionSet = try group.permissionPolicySet()
+
+print("Add member policy: \(permissionSet.addMemberPolicy)")
+print("Remove member policy: \(permissionSet.removeMemberPolicy)")
+print("Update name policy: \(permissionSet.updateGroupNamePolicy)")
+```
+
+## Group Synchronization
+
+Sync group state with the network:
+
+```swift
+// Sync a specific group
+try await group.sync()
+
+// Sync all groups
+let summary = try await client.conversations.syncAllConversations()
+print("Synced \(summary.numSynced) of \(summary.numEligible) groups")
+```
+
+## Group Status and Metadata
+
+### Check Group Status
+
+```swift
+// Check if group is active
+let isActive = try group.isActive()
+
+// Check membership state
+let membershipState = try group.membershipState
+switch membershipState {
+case .allowed:
+    print("Active member")
+case .rejected:
+    print("Removed from group")
+case .pending:
+    print("Pending approval")
+case .restored:
+    print("Membership restored")
+case .pendingRemove:
+    print("Removal pending")
+}
+```
+
+### Access Group Properties
+
+```swift
+// Group identification
+let groupId = group.id
+let topic = group.topic
+
+// Timestamps
+let createdAt = group.createdAt
+let createdAtNs = group.createdAtNs
+let lastActivityAtNs = group.lastActivityAtNs
+```
+
+## Leaving a Group
+
+```swift
+try await group.leaveGroup()
+```
+
+## Optimistic Group Creation
+
+Create a group instantly without waiting for network confirmation:
+
+```swift
+let group = try client.conversations.newGroupOptimistic(
+    permissions: .allMembers,
+    groupName: "Quick Group",
+    groupDescription: "Created instantly"
+)
+
+// Group is immediately available for use
+let messageId = try await group.send(content: "First message!")
+
+// Later, publish to network
+try await group.publishMessages()
+```
+
+## Deleting Messages
+
+Delete messages from the group:
+
+```swift
+let deletionMessageId = try await group.deleteMessage(
+    messageId: messageId
+)
+```
+
+<Warning>
+Deleted messages are removed from all participants' clients.
+</Warning>
+
+## Finding Groups
+
+### Find by Group ID
+
+```swift
+if let group = try client.conversations.findGroup(
+    groupId: groupId
+) {
+    print("Found group: \(try group.name())")
+}
+```
+
+### List All Groups
+
+```swift
+let groups = try client.conversations.listGroups(
+    limit: 50,
+    consentStates: [.allowed],
+    orderBy: .lastActivity
+)
+```
+
+### Filter Groups
+
+```swift
+let recentGroups = try client.conversations.listGroups(
+    createdAfterNs: lastWeek,
+    lastActivityAfterNs: yesterday,
+    limit: 25
+)
+```
+
+## Error Handling
+
+```swift
+do {
+    let group = try await client.conversations.newGroup(
+        with: inboxIds
+    )
+} catch ConversationError.memberCannotBeSelf {
+    print("Cannot add yourself to a group")
+} catch ConversationError.memberNotRegistered(let members) {
+    print("Not registered: \(members.joined(separator: ", "))")
+} catch {
+    print("Failed to create group: \(error)")
+}
+```
+
+## Best Practices
+
+1. **Sync regularly** - Keep group state up to date
+2. **Handle membership changes** - Listen for member additions/removals
+3. **Validate permissions** - Check permissions before attempting actions
+4. **Set appropriate permissions** - Match permissions to your use case
+5. **Use descriptive metadata** - Help users identify groups
+6. **Handle errors gracefully** - Network issues can affect group operations
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Consent Preferences" icon="shield-check" href="/guides/consent-preferences">
+    Manage conversation consent and privacy
+  </Card>
+  <Card title="Sending Messages" icon="paper-plane" href="/guides/sending-messages">
+    Send messages to your groups
+  </Card>
+</CardGroup>

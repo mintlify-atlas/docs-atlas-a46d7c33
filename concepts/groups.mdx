@@ -1,0 +1,409 @@
+---
+title: Groups
+description: Multi-participant encrypted group conversations with permissions and admin controls
+---
+
+Groups are multi-participant conversations in XMTP that support member management, administrative controls, and configurable permissions.
+
+## Overview
+
+The `Group` struct represents a group conversation where multiple participants can communicate. Groups support advanced features like permission management, admin roles, and metadata.
+
+```swift
+let group = try await client.conversations.newGroup(
+  with: ["0x1234...", "0x5678..."],
+  permissions: .allMembers,
+  name: "Project Team"
+)
+
+try await group.send(content: "Welcome to the team!")
+```
+
+## Creating groups
+
+### Basic group creation
+
+```swift
+let group = try await client.conversations.newGroup(
+  with: memberAddresses
+)
+```
+
+### Group with metadata
+
+Add name, image, and description when creating a group.
+
+```swift
+let group = try await client.conversations.newGroup(
+  with: memberAddresses,
+  permissions: .adminOnly,
+  name: "Engineering Team",
+  imageUrlSquare: "https://example.com/avatar.png",
+  description: "Discussion for the engineering team"
+)
+```
+
+## Group properties
+
+### Identity and metadata
+
+```swift
+// Unique group ID
+let id = group.id
+
+// Group topic
+let topic = group.topic
+
+// Creation timestamp
+let createdAt = group.createdAt
+
+// Check if you're the creator
+let isCreator = try await group.isCreator()
+```
+
+### Members
+
+Access the list of group members.
+
+```swift
+let members = try await group.members
+
+for member in members {
+  print("Member: \(member.inboxId)")
+  print("Is admin: \(member.permissionLevel == .admin)")
+  print("Is super admin: \(member.permissionLevel == .superAdmin)")
+}
+```
+
+### Metadata
+
+Read group metadata like name, description, and image.
+
+```swift
+let metadata = try await group.metadata()
+
+if let name = metadata.groupName() {
+  print("Group name: \(name)")
+}
+
+if let description = metadata.groupDescription() {
+  print("Description: \(description)")
+}
+
+if let imageUrl = metadata.groupImageUrlSquare() {
+  print("Image URL: \(imageUrl)")
+}
+```
+
+## Member management
+
+### Adding members
+
+```swift
+try await group.addMembers(addresses: ["0x9abc...", "0xdef0..."])
+```
+
+### Removing members
+
+```swift
+try await group.removeMembers(addresses: ["0x9abc..."])
+
+// Remove by inbox ID
+try await group.removeMembersByInboxId(inboxIds: ["inbox-123"])
+```
+
+<Warning>
+Only admins (or all members if permissions allow) can add or remove members.
+</Warning>
+
+## Admin management
+
+Groups support two levels of administrative control:
+
+- **Admin**: Can manage members and update group settings
+- **Super Admin**: Can promote/demote admins and has all admin privileges
+
+### Managing admins
+
+```swift
+// Add an admin
+try await group.addAdmin(inboxId: "inbox-123")
+
+// Remove an admin
+try await group.removeAdmin(inboxId: "inbox-123")
+
+// Check if someone is an admin
+let isAdmin = try group.isAdmin(inboxId: "inbox-123")
+```
+
+### Managing super admins
+
+```swift
+// Add a super admin
+try await group.addSuperAdmin(inboxId: "inbox-123")
+
+// Remove a super admin
+try await group.removeSuperAdmin(inboxId: "inbox-123")
+
+// Check if someone is a super admin
+let isSuperAdmin = try group.isSuperAdmin(inboxId: "inbox-123")
+```
+
+## Permissions
+
+Groups can be configured with different permission levels.
+
+### Permission options
+
+- **`.allMembers`**: All members can add members and update metadata
+- **`.adminOnly`**: Only admins can add members and update metadata
+
+### Checking permissions
+
+```swift
+let permissions = try group.permissions()
+
+// Check specific permissions
+let canAddMember = permissions.policySet().addMemberPolicy
+let canRemoveMember = permissions.policySet().removeMemberPolicy
+let canUpdateMetadata = permissions.policySet().updateMetadataPolicy
+```
+
+### Updating permissions
+
+```swift
+// Update who can add members
+try await group.updateAddMemberPermission(newPermission: .admin)
+
+// Update who can remove members
+try await group.updateRemoveMemberPermission(newPermission: .admin)
+
+// Update who can update metadata
+try await group.updateGroupMetadataPermission(newPermission: .admin)
+
+// Update who can add admins
+try await group.updateAddAdminPermission(newPermission: .superAdmin)
+```
+
+## Updating metadata
+
+### Update group name
+
+```swift
+try await group.updateGroupName(groupName: "New Team Name")
+```
+
+### Update group image
+
+```swift
+try await group.updateGroupImageUrlSquare(
+  imageUrlSquare: "https://example.com/new-avatar.png"
+)
+```
+
+### Update description
+
+```swift
+try await group.updateGroupDescription(
+  description: "Updated team description"
+)
+```
+
+## Sending messages
+
+Groups support multiple ways to send messages.
+
+### Send text message
+
+```swift
+try await group.send(content: "Hello, team!")
+```
+
+### Send with content type
+
+```swift
+let attachment = Attachment(
+  filename: "document.pdf",
+  mimeType: "application/pdf",
+  data: fileData
+)
+
+try await group.send(
+  content: attachment,
+  options: .init(contentType: ContentTypeAttachment)
+)
+```
+
+### Optimistic send
+
+Send a message and get an ID immediately, before network confirmation.
+
+```swift
+let messageId = try await group.publishMessages()
+```
+
+## Reading messages
+
+### List all messages
+
+```swift
+let messages = try await group.messages()
+
+for message in messages {
+  print("Message: \(try message.content())")
+}
+```
+
+### Pagination
+
+```swift
+// Get first 20 messages
+let page1 = try await group.messages(
+  limit: 20
+)
+
+// Get next 20 messages
+let page2 = try await group.messages(
+  limit: 20,
+  before: page1.last?.sentAtNs
+)
+```
+
+### Filter by time
+
+```swift
+let recent = try await group.messages(
+  after: Date().addingTimeInterval(-3600) // Last hour
+)
+```
+
+## Streaming messages
+
+Receive real-time message updates.
+
+```swift
+for try await message in group.streamMessages() {
+  print("New message: \(try message.content())")
+}
+```
+
+### Stop streaming
+
+```swift
+group.endStream()
+```
+
+## Disappearing messages
+
+Configure messages to automatically delete after a specified time.
+
+### Enable disappearing messages
+
+```swift
+// Messages disappear after 1 hour
+try await group.updateConversationMessageDisappearing(
+  disappearingMessagesSetting: .enabled,
+  timeNs: 3600 * 1_000_000_000 // 1 hour in nanoseconds
+)
+```
+
+### Check if enabled
+
+```swift
+if try group.isDisappearingMessagesEnabled() {
+  if let settings = group.disappearingMessageSettings {
+    print("Messages disappear after: \(settings.timeNs) ns")
+  }
+}
+```
+
+### Disable disappearing messages
+
+```swift
+try await group.updateConversationMessageDisappearing(
+  disappearingMessagesSetting: .disabled
+)
+```
+
+## Synchronization
+
+Sync the group with the network to receive updates.
+
+```swift
+try await group.sync()
+```
+
+<Info>
+Synchronization pulls the latest state including new messages, membership changes, and metadata updates.
+</Info>
+
+## Group state
+
+### Check if active
+
+```swift
+if try group.isActive() {
+  print("Group is active")
+} else {
+  print("Group has been deleted or archived")
+}
+```
+
+### Fork detection
+
+Detect if the group's commit log has forked.
+
+```swift
+if let hasFork = try await group.commitLogForkStatus() {
+  if hasFork {
+    print("Group has a fork - sync required")
+    try await group.sync()
+  }
+}
+```
+
+## Consent management
+
+Manage consent for the group.
+
+```swift
+// Allow the group
+try await group.updateConsentState(state: .allowed)
+
+// Block the group
+try await group.updateConsentState(state: .denied)
+
+// Check current consent
+let consentState = try group.consentState()
+```
+
+## Best practices
+
+<CardGroup cols={2}>
+  <Card title="Sync before critical operations" icon="rotate">
+    Call `sync()` before reading members or permissions to ensure up-to-date state.
+  </Card>
+  <Card title="Use appropriate permissions" icon="shield">
+    Choose `.adminOnly` for formal groups, `.allMembers` for collaborative spaces.
+  </Card>
+  <Card title="Handle member errors" icon="user-xmark">
+    Always handle cases where members aren't registered or operations fail.
+  </Card>
+  <Card title="Stream for real-time updates" icon="tower-broadcast">
+    Use message streaming instead of polling for better UX and performance.
+  </Card>
+</CardGroup>
+
+## Related documentation
+
+<CardGroup cols={3}>
+  <Card title="Managing groups" icon="users-gear" href="/guides/managing-groups">
+    Detailed guide to group management
+  </Card>
+  <Card title="Group API reference" icon="code" href="/api/group">
+    Complete API documentation for Group
+  </Card>
+  <Card title="Conversations" icon="comments" href="/concepts/conversations">
+    Learn about conversation management
+  </Card>
+</CardGroup>

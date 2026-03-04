@@ -1,0 +1,277 @@
+---
+title: Creating a Client
+description: Learn how to create and configure an XMTP client instance
+---
+
+The `Client` is the primary entry point for using XMTP in your iOS application. It manages connections to the XMTP network, handles authentication, and provides access to conversations.
+
+## Prerequisites
+
+Before creating a client, you need:
+
+- A signing key that implements the `SigningKey` protocol
+- A database encryption key for secure local storage
+- Network configuration (environment selection)
+
+## Basic Client Creation
+
+<Steps>
+  <Step title="Prepare the encryption key">
+    Generate a secure encryption key for the local database:
+
+    ```swift
+    import XMTP
+
+    // Generate a random 32-byte encryption key
+    let encryptionKey = try Crypto.secureRandomBytes(count: 32)
+    ```
+  </Step>
+
+  <Step title="Configure client options">
+    Set up your client configuration with the encryption key and environment:
+
+    ```swift
+    let options = ClientOptions(
+        api: ClientOptions.Api(
+            env: .production, // or .dev for testing
+            isSecure: true
+        ),
+        dbEncryptionKey: encryptionKey
+    )
+    ```
+  </Step>
+
+  <Step title="Create the client">
+    Create a client instance using your signing key:
+
+    ```swift
+    let client = try await Client.create(
+        account: signingKey,
+        options: options
+    )
+    ```
+  </Step>
+</Steps>
+
+## Client Options
+
+### Network Configuration
+
+Choose the appropriate XMTP network environment:
+
+```swift
+let apiConfig = ClientOptions.Api(
+    env: .production,      // Production network
+    isSecure: true,        // Use TLS (recommended)
+    appVersion: "1.0.0"    // Optional: Your app version
+)
+```
+
+**Available environments:**
+- `.production` - Live XMTP network
+- `.dev` - Development/testing network
+- `.local` - Local development (requires Docker setup)
+
+### Database Configuration
+
+Configure where the local database is stored:
+
+```swift
+let options = ClientOptions(
+    api: apiConfig,
+    dbEncryptionKey: encryptionKey,
+    dbDirectory: "/path/to/custom/directory" // Optional
+)
+```
+
+If `dbDirectory` is not specified, the database will be stored in the Documents directory with the naming pattern: `xmtp-{environment}-{inboxId}.db3`
+
+### Content Codecs
+
+Register custom content codecs during client creation:
+
+```swift
+let options = ClientOptions(
+    api: apiConfig,
+    dbEncryptionKey: encryptionKey,
+    codecs: [
+        TextCodec(),
+        AttachmentCodec(),
+        ReactionCodec()
+    ]
+)
+```
+
+### History Sync
+
+Configure message history synchronization across devices:
+
+```swift
+let options = ClientOptions(
+    api: apiConfig,
+    dbEncryptionKey: encryptionKey,
+    historySyncUrl: "https://custom-sync-url.com", // Optional
+    deviceSyncEnabled: true // Enable device sync (default: true)
+)
+```
+
+## Advanced Configuration
+
+### Pre-Authentication Callback
+
+Execute custom logic before authentication:
+
+```swift
+let options = ClientOptions(
+    api: apiConfig,
+    dbEncryptionKey: encryptionKey,
+    preAuthenticateToInboxCallback: {
+        // Perform actions before signing
+        print("About to request signature from user")
+    }
+)
+```
+
+### Fork Recovery Options
+
+Configure fork recovery policies for network resilience:
+
+```swift
+let forkRecovery = ForkRecoveryOptions(
+    enableRecoveryRequests: .allowlistedGroups,
+    groupsToRequestRecovery: ["groupId1", "groupId2"],
+    disableRecoveryResponses: false
+)
+
+let options = ClientOptions(
+    api: apiConfig,
+    dbEncryptionKey: encryptionKey,
+    forkRecoveryOptions: forkRecovery
+)
+```
+
+**Recovery policies:**
+- `.none` - Disable fork recovery
+- `.allowlistedGroups` - Enable for specific groups
+- `.all` - Enable for all conversations
+
+## Building a Client Without Signing
+
+For read-only access or custom authentication flows:
+
+```swift
+let publicIdentity = PublicIdentity(
+    kind: .ethereum,
+    identifier: "0x1234567890123456789012345678901234567890"
+)
+
+let client = try await Client.build(
+    publicIdentity: publicIdentity,
+    options: options,
+    inboxId: existingInboxId // Optional: use existing inbox ID
+)
+```
+
+<Warning>
+Clients built with `build()` cannot send messages or perform write operations without proper authentication.
+</Warning>
+
+## Client Properties
+
+After creation, access important client information:
+
+```swift
+// Unique inbox identifier
+let inboxId = client.inboxID
+
+// Installation ID for this device
+let installationId = client.installationID
+
+// Database file path
+let dbPath = client.dbPath
+
+// Network environment
+let environment = client.environment
+
+// LibXMTP version
+let version = client.libXMTPVersion
+```
+
+## Error Handling
+
+Handle common client creation errors:
+
+```swift
+do {
+    let client = try await Client.create(
+        account: signingKey,
+        options: options
+    )
+} catch ClientError.creationError(let message) {
+    print("Failed to create client: \(message)")
+} catch {
+    print("Unexpected error: \(error)")
+}
+```
+
+**Common errors:**
+- `ClientError.creationError` - General creation failures
+- `ClientError.missingInboxId` - Inbox ID not found
+- `ClientError.invalidInboxId` - Invalid inbox ID format
+
+## Checking Message Capability
+
+Before creating conversations, check if addresses can message:
+
+```swift
+// Check a single identity
+let canMessage = try await client.canMessage(identity: publicIdentity)
+
+// Check multiple identities
+let identities = [identity1, identity2, identity3]
+let results = try await client.canMessage(identities: identities)
+// Returns [String: Bool] mapping identifier to capability
+```
+
+## Static Methods
+
+Check messaging capability without creating a client:
+
+```swift
+let identities = [publicIdentity1, publicIdentity2]
+let results = try await Client.canMessage(
+    accountIdentities: identities,
+    api: ClientOptions.Api(env: .production)
+)
+```
+
+## Database Management
+
+### Reconnecting the Database
+
+If the database connection is dropped:
+
+```swift
+try await client.reconnectLocalDatabase()
+```
+
+### Deleting Local Data
+
+<Warning>
+This permanently deletes all local message data. This operation cannot be undone.
+</Warning>
+
+```swift
+try client.deleteLocalDatabase()
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Sending Messages" icon="paper-plane" href="/guides/sending-messages">
+    Learn how to send different types of messages
+  </Card>
+  <Card title="Managing Groups" icon="users" href="/guides/managing-groups">
+    Create and manage group conversations
+  </Card>
+</CardGroup>

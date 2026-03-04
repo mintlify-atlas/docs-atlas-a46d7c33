@@ -1,97 +1,147 @@
----
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
----
+<div className="relative bg-gradient-to-br from-[#6F3FF5] via-[#5B21B6] to-[#4C1D95] dark:from-[#5B21B6] dark:via-[#4C1D95] dark:to-[#2e1065] py-20 overflow-hidden">
+  <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10"></div>
+  <div className="relative max-w-6xl mx-auto px-6 sm:px-8 lg:px-12">
+    <div className="text-center">
+      <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-white mb-6">
+        Build secure messaging with XMTP iOS SDK
+      </h1>
+      <p className="text-lg sm:text-xl text-white/90 max-w-2xl mx-auto mb-8">
+        Integrate end-to-end encrypted, decentralized messaging into your iOS applications using the XMTP protocol.
+      </p>
+      <div className="flex flex-col sm:flex-row gap-4 justify-center items-center flex-wrap">
+        <a 
+          href="/quickstart" 
+          className="inline-flex items-center px-6 py-3 rounded-lg bg-white text-[#6F3FF5] font-semibold hover:bg-gray-100 transition-colors no-underline"
+        >
+          Get started
+        </a>
+        <a 
+          href="/api/client" 
+          className="inline-flex items-center px-6 py-3 rounded-lg border border-white/30 bg-white/10 text-white font-semibold hover:bg-white/20 transition-colors no-underline"
+        >
+          API reference
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
 
-## Setting up
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-4">
+    Quick start
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Get your iOS app sending secure messages in minutes
+  </p>
 
-Get your documentation site up and running in minutes.
+  <Steps>
+    <Step title="Install the SDK">
+      Add the XMTP iOS SDK to your project using Swift Package Manager.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+      ```swift
+      dependencies: [
+        .package(url: "https://github.com/xmtp/xmtp-ios", from: "4.0.0")
+      ]
+      ```
 
-## Make it yours
+      See the [installation guide](/installation) for CocoaPods and detailed setup instructions.
+    </Step>
 
-Design a docs site that looks great and empowers your users.
+    <Step title="Create a client">
+      Initialize an XMTP client with a signing key to authenticate your user.
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
+      ```swift
+      import XMTPiOS
 
-## Create beautiful pages
+      let client = try await Client.create(
+        account: account,
+        options: .init(
+          api: .init(env: .production)
+        )
+      )
+      ```
+    </Step>
 
-Everything you need to create world-class documentation.
+    <Step title="Send your first message">
+      Start a conversation and send an encrypted message.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+      ```swift
+      let conversation = try await client.conversations.newConversation(
+        with: "0x1234..."
+      )
+      
+      try await conversation.send(content: "Hello from XMTP!")
+      ```
 
-## Need inspiration?
+      Check out the [quickstart guide](/quickstart) for a complete working example.
+    </Step>
+  </Steps>
+</div>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-4">
+    Core features
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Everything you need to build production-ready messaging
+  </p>
+
+  <CardGroup cols={2}>
+    <Card title="End-to-end encryption" icon="lock" href="/concepts/messages">
+      Messages are encrypted using MLS protocol, ensuring only participants can read them.
+    </Card>
+    <Card title="Group messaging" icon="users" href="/concepts/groups">
+      Create groups with permission management, admin controls, and member management.
+    </Card>
+    <Card title="Direct messages" icon="message" href="/concepts/direct-messages">
+      Send secure 1-on-1 messages between blockchain accounts.
+    </Card>
+    <Card title="Rich content types" icon="file" href="/concepts/content-types">
+      Support text, attachments, reactions, replies, and custom content types.
+    </Card>
+    <Card title="Real-time streaming" icon="bolt" href="/advanced/streaming">
+      Stream new messages and conversation updates in real-time.
+    </Card>
+    <Card title="Push notifications" icon="bell" href="/guides/push-notifications">
+      Deliver timely notifications when users receive new messages.
+    </Card>
+  </CardGroup>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-4">
+    Explore the documentation
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Learn key concepts and dive into practical guides
+  </p>
+
+  <CardGroup cols={3}>
+    <Card title="Core concepts" icon="book-open" href="/concepts/client">
+      Understand clients, conversations, groups, and messages.
+    </Card>
+    <Card title="Integration guides" icon="code" href="/guides/creating-client">
+      Step-by-step guides for common integration scenarios.
+    </Card>
+    <Card title="API reference" icon="terminal" href="/api/client">
+      Complete API documentation for all classes and methods.
+    </Card>
+  </CardGroup>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="bg-gray-50 dark:bg-[#1a1d27] border border-gray-200 dark:border-[#27272a] rounded-2xl p-8 text-center">
+    <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-4">
+      Ready to start building?
+    </h2>
+    <p className="text-base text-gray-600 dark:text-gray-400 mb-6 max-w-xl mx-auto">
+      Follow our quickstart guide to build your first XMTP-powered messaging feature in minutes.
+    </p>
+    <a 
+      href="/quickstart" 
+      className="inline-flex items-center px-6 py-3 rounded-lg bg-[#6F3FF5] text-white font-semibold hover:bg-[#5B21B6] transition-colors no-underline"
+    >
+      View quickstart guide
+    </a>
+  </div>
+</div>

@@ -1,0 +1,510 @@
+---
+title: Testing with XMTP
+description: Test utilities and patterns for XMTP iOS SDK integration
+---
+
+The XMTP iOS SDK provides testing utilities and patterns to help you build reliable tests for your messaging features.
+
+## Test Helpers Module
+
+The SDK includes `XMTPTestHelpers` module with utilities for testing:
+
+```swift
+import XCTest
+import XMTPiOS
+import XMTPTestHelpers
+```
+
+## Creating Test Clients
+
+### Using Fixtures
+
+The `Fixtures` helper creates multiple test clients with pre-generated keys:
+
+```swift TestHelpers.swift:45-86
+import XCTest
+import XMTPiOS
+import XMTPTestHelpers
+
+@available(iOS 15, *)
+class MyMessagingTests: XCTestCase {
+    var fixtures: Fixtures!
+    
+    override func setUp() async throws {
+        fixtures = try await fixtures()
+    }
+    
+    override func tearDown() throws {
+        try fixtures.cleanUpDatabases()
+    }
+    
+    func testSendMessage() async throws {
+        // Fixtures provides 4 clients: alix, bo, caro, davon
+        let group = try await fixtures.alixClient.conversations.newGroup(
+            with: [fixtures.boClient.publicIdentity]
+        )
+        
+        let messageId = try await group.send(content: "Hello from test")
+        XCTAssertFalse(messageId.isEmpty)
+    }
+}
+```
+
+### Available Test Clients
+
+Fixtures provides four pre-configured clients:
+
+- `alixClient` / `alix` - First test client and signing key
+- `boClient` / `bo` - Second test client and signing key  
+- `caroClient` / `caro` - Third test client and signing key
+- `davonClient` / `davon` - Fourth test client and signing key
+
+## Local Test Environment
+
+For integration testing against a local XMTP node:
+
+### Setup Local Node
+
+Start a local XMTP test node using Docker:
+
+```bash
+# From the SDK repository
+./script/local
+
+# Or using dev scripts
+./dev/up
+```
+
+### Configure Tests for Local Node
+
+```swift TestHelpers.swift:89-96
+class LocalNodeTests: XCTestCase {
+    override func setUp() {
+        setupLocalEnv()
+    }
+    
+    func testWithLocalNode() async throws {
+        try TestConfig.skipIfNotRunningLocalNodeTests()
+        
+        let fixtures = try await fixtures(
+            clientOptions: ClientOptions.Api(
+                env: .local,
+                isSecure: false
+            )
+        )
+        
+        // Test against local node
+        let group = try await fixtures.alixClient.conversations.newGroup(
+            with: [fixtures.boClient.publicIdentity]
+        )
+        
+        try await group.send(content: "Local test message")
+    }
+}
+```
+
+### Environment Variables
+
+Configure local node connection:
+
+```swift TestHelpers.swift:7-17
+// Set these environment variables in your test scheme
+// XMTP_NODE_ADDRESS - Local node address (e.g., "http://localhost:5556")
+// XMTP_HISTORY_SERVER_ADDRESS - History sync server address
+// TEST_SERVER_ENABLED - Set to "true" to enable local node tests
+```
+
+In Xcode:
+1. Edit Scheme > Test > Arguments > Environment Variables
+2. Add `TEST_SERVER_ENABLED = true`
+3. Add `XMTP_NODE_ADDRESS = http://localhost:5556`
+
+## Creating Custom Test Clients
+
+For more control, create clients manually:
+
+```swift
+import XMTPiOS
+
+func createTestClient() async throws -> Client {
+    let privateKey = try PrivateKey.generate()
+    let encryptionKey = Data((0..<32).map { _ in UInt8.random(in: 0...255) })
+    
+    let options = ClientOptions(
+        api: .init(env: .dev, isSecure: true),
+        dbEncryptionKey: encryptionKey
+    )
+    
+    return try await Client.create(
+        account: privateKey,
+        options: options
+    )
+}
+```
+
+## Testing Message Flows
+
+### Test Message Delivery
+
+```swift
+func testMessageDelivery() async throws {
+    let fixtures = try await fixtures()
+    
+    // Create group
+    let group = try await fixtures.alixClient.conversations.newGroup(
+        with: [fixtures.boClient.publicIdentity]
+    )
+    
+    // Send message from Alice
+    let sentContent = "Test message"
+    try await group.send(content: sentContent)
+    
+    // Sync Bo's client
+    try await fixtures.boClient.conversations.sync()
+    
+    // Find group on Bo's side
+    let boGroups = try await fixtures.boClient.conversations.groups()
+    let boGroup = boGroups.first { $0.id == group.id }
+    XCTAssertNotNil(boGroup)
+    
+    // Verify message received
+    let messages = try await boGroup!.messages()
+    XCTAssertEqual(messages.count, 1)
+    
+    let receivedContent: String = try messages[0].content()
+    XCTAssertEqual(receivedContent, sentContent)
+}
+```
+
+### Test Streaming
+
+```swift
+func testMessageStreaming() async throws {
+    let fixtures = try await fixtures()
+    let expectation = XCTestExpectation(description: "Receive streamed message")
+    
+    let group = try await fixtures.alixClient.conversations.newGroup(
+        with: [fixtures.boClient.publicIdentity]
+    )
+    
+    // Set up stream on Bo's side
+    try await fixtures.boClient.conversations.sync()
+    let boGroups = try await fixtures.boClient.conversations.groups()
+    let boGroup = boGroups.first { $0.id == group.id }!
+    
+    Task {
+        let stream = boGroup.streamMessages()
+        for try await message in stream {
+            let content: String = try message.content()
+            if content == "Streamed message" {
+                expectation.fulfill()
+                boGroup.endStream()
+                break
+            }
+        }
+    }
+    
+    // Give stream time to connect
+    try await Task.sleep(nanoseconds: 100_000_000)
+    
+    // Send message
+    try await group.send(content: "Streamed message")
+    
+    await fulfillment(of: [expectation], timeout: 5.0)
+}
+```
+
+## Testing Custom Codecs
+
+```swift
+struct TestData: Codable {
+    let value: String
+}
+
+struct TestCodec: ContentCodec {
+    typealias T = TestData
+    
+    var contentType = ContentTypeID(
+        authorityID: "test.example.com",
+        typeID: "test-data",
+        versionMajor: 1,
+        versionMinor: 0
+    )
+    
+    func encode(content: TestData) throws -> EncodedContent {
+        var encoded = EncodedContent()
+        encoded.type = contentType
+        encoded.content = try JSONEncoder().encode(content)
+        return encoded
+    }
+    
+    func decode(content: EncodedContent) throws -> TestData {
+        try JSONDecoder().decode(TestData.self, from: content.content)
+    }
+    
+    func fallback(content: TestData) throws -> String? {
+        "Test data: \(content.value)"
+    }
+    
+    func shouldPush(content: TestData) throws -> Bool {
+        true
+    }
+}
+
+func testCustomCodec() async throws {
+    // Register codec
+    Client.register(codec: TestCodec())
+    
+    let fixtures = try await fixtures()
+    let group = try await fixtures.alixClient.conversations.newGroup(
+        with: [fixtures.boClient.publicIdentity]
+    )
+    
+    // Send custom content
+    let testData = TestData(value: "test123")
+    try await group.send(
+        content: testData,
+        options: SendOptions(contentType: TestCodec().contentType)
+    )
+    
+    // Receive and decode
+    let messages = try await group.messages()
+    let received: TestData = try messages[0].content()
+    XCTAssertEqual(received.value, "test123")
+}
+```
+
+## Testing Group Operations
+
+### Test Group Membership
+
+```swift
+func testAddMember() async throws {
+    let fixtures = try await fixtures()
+    
+    // Create group with two members
+    let group = try await fixtures.alixClient.conversations.newGroup(
+        with: [fixtures.boClient.publicIdentity]
+    )
+    
+    // Add third member
+    let result = try await group.addMembers(
+        inboxIds: [fixtures.caroClient.inboxID]
+    )
+    
+    XCTAssertEqual(result.addedInboxIds, [fixtures.caroClient.inboxID])
+    
+    // Verify membership
+    let members = try await group.members
+    XCTAssertEqual(members.count, 3)
+    
+    let memberInboxIds = members.map { $0.inboxId }
+    XCTAssertTrue(memberInboxIds.contains(fixtures.alixClient.inboxID))
+    XCTAssertTrue(memberInboxIds.contains(fixtures.boClient.inboxID))
+    XCTAssertTrue(memberInboxIds.contains(fixtures.caroClient.inboxID))
+}
+```
+
+### Test Permissions
+
+```swift
+func testAdminPermissions() async throws {
+    let fixtures = try await fixtures()
+    
+    let group = try await fixtures.alixClient.conversations.newGroup(
+        with: [fixtures.boClient.publicIdentity]
+    )
+    
+    // Alice is creator and super admin
+    XCTAssertTrue(try await group.isCreator())
+    XCTAssertTrue(try group.isSuperAdmin(inboxId: fixtures.alixClient.inboxID))
+    
+    // Bo is regular member
+    XCTAssertFalse(try group.isAdmin(inboxId: fixtures.boClient.inboxID))
+    
+    // Add Bo as admin
+    try await group.addAdmin(inboxId: fixtures.boClient.inboxID)
+    XCTAssertTrue(try group.isAdmin(inboxId: fixtures.boClient.inboxID))
+}
+```
+
+## Mocking and Isolation
+
+### Mock Client for Unit Tests
+
+```swift
+protocol XMTPClientProtocol {
+    func sendMessage(_ content: String, to group: String) async throws -> String
+    func getMessages(from group: String) async throws -> [String]
+}
+
+class MockXMTPClient: XMTPClientProtocol {
+    var sentMessages: [String: [String]] = [:]
+    
+    func sendMessage(_ content: String, to group: String) async throws -> String {
+        if sentMessages[group] == nil {
+            sentMessages[group] = []
+        }
+        sentMessages[group]?.append(content)
+        return UUID().uuidString
+    }
+    
+    func getMessages(from group: String) async throws -> [String] {
+        return sentMessages[group] ?? []
+    }
+}
+
+func testWithMock() async throws {
+    let mockClient = MockXMTPClient()
+    
+    // Test your business logic with mock
+    let messageId = try await mockClient.sendMessage(
+        "Test",
+        to: "group123"
+    )
+    XCTAssertFalse(messageId.isEmpty)
+    
+    let messages = try await mockClient.getMessages(from: "group123")
+    XCTAssertEqual(messages, ["Test"])
+}
+```
+
+## Test Transcript Collection
+
+Collect test messages for verification:
+
+```swift TestHelpers.swift:36-42
+func testWithTranscript() async throws {
+    let transcript = TestTranscript()
+    let fixtures = try await fixtures()
+    
+    let group = try await fixtures.alixClient.conversations.newGroup(
+        with: [fixtures.boClient.publicIdentity]
+    )
+    
+    Task {
+        let stream = group.streamMessages()
+        for try await message in stream {
+            let content: String = try message.content()
+            await transcript.add(content)
+        }
+    }
+    
+    try await group.send(content: "Message 1")
+    try await group.send(content: "Message 2")
+    
+    try await Task.sleep(nanoseconds: 500_000_000)
+    
+    let messages = await transcript.messages
+    XCTAssertEqual(messages, ["Message 1", "Message 2"])
+}
+```
+
+## Performance Testing
+
+```swift
+func testMessageThroughput() async throws {
+    let fixtures = try await fixtures()
+    let group = try await fixtures.alixClient.conversations.newGroup(
+        with: [fixtures.boClient.publicIdentity]
+    )
+    
+    let messageCount = 100
+    let startTime = Date()
+    
+    for i in 0..<messageCount {
+        try await group.send(content: "Message \(i)")
+    }
+    
+    let duration = Date().timeIntervalSince(startTime)
+    let messagesPerSecond = Double(messageCount) / duration
+    
+    print("Throughput: \(messagesPerSecond) messages/second")
+    XCTAssertGreaterThan(messagesPerSecond, 10) // Adjust threshold as needed
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Clean Up" icon="broom">
+    Always call cleanUpDatabases() in tearDown to remove test databases
+  </Card>
+  <Card title="Isolation" icon="box">
+    Use unique encryption keys per test for complete isolation
+  </Card>
+  <Card title="Async/Await" icon="clock">
+    Use async test methods for cleaner async code
+  </Card>
+  <Card title="Local Node" icon="server">
+    Use local node for faster, more reliable integration tests
+  </Card>
+</CardGroup>
+
+## Common Test Patterns
+
+### Waiting for Sync
+
+```swift
+func waitForSync(_ client: Client, timeout: TimeInterval = 5.0) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    
+    while Date() < deadline {
+        try await client.conversations.sync()
+        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+    }
+}
+```
+
+### Verifying Event Order
+
+```swift
+func testMessageOrder() async throws {
+    let fixtures = try await fixtures()
+    let group = try await fixtures.alixClient.conversations.newGroup(
+        with: [fixtures.boClient.publicIdentity]
+    )
+    
+    // Send messages in order
+    try await group.send(content: "First")
+    try await group.send(content: "Second")
+    try await group.send(content: "Third")
+    
+    let messages = try await group.messages()
+    let contents: [String] = try messages.reversed().map { try $0.content() }
+    
+    XCTAssertEqual(contents, ["First", "Second", "Third"])
+}
+```
+
+## Skipping Tests
+
+Conditionally skip tests based on environment:
+
+```swift TestHelpers.swift:26-32
+func testRequiresLocalNode() async throws {
+    try TestConfig.skipIfNotRunningLocalNodeTests()
+    
+    // This test only runs when TEST_SERVER_ENABLED=true
+    let fixtures = try await fixtures(
+        clientOptions: .init(env: .local, isSecure: false)
+    )
+    
+    // Test implementation
+}
+
+func testNotYetImplemented() throws {
+    try TestConfig.skip(because: "Feature not yet implemented")
+}
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Database Encryption" href="/advanced/database-encryption">
+    Secure test databases with encryption
+  </Card>
+  <Card title="Streaming" href="/advanced/streaming">
+    Test real-time message streaming
+  </Card>
+</CardGroup>

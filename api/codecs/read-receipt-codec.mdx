@@ -1,0 +1,332 @@
+---
+title: ReadReceiptCodec
+description: Codec for encoding and decoding read receipts
+---
+
+## Overview
+
+The `ReadReceiptCodec` enables users to send read receipts to indicate they have read messages in a conversation. This is commonly used to implement "seen" or "read" indicators in messaging apps.
+
+## Content Type
+
+```swift
+public let ContentTypeReadReceipt = ContentTypeID(
+    authorityID: "xmtp.org",
+    typeID: "readReceipt",
+    versionMajor: 1,
+    versionMinor: 0
+)
+```
+
+## Data Structures
+
+### ReadReceipt
+
+```swift
+public struct ReadReceipt {
+    public init()
+}
+```
+
+The `ReadReceipt` structure is intentionally empty. The read receipt is indicated by the message itself, and the timestamp is automatically tracked by the message metadata.
+
+### ReadReceiptCodec
+
+```swift
+public struct ReadReceiptCodec: ContentCodec {
+    public typealias T = ReadReceipt
+    public var contentType = ContentTypeReadReceipt
+}
+```
+
+## Methods
+
+### encode
+
+Encodes a read receipt into `EncodedContent`.
+
+```swift
+public func encode(content: ReadReceipt) throws -> EncodedContent
+```
+
+**Parameters:**
+- `content`: The read receipt to encode
+
+**Returns:** `EncodedContent` with empty data
+
+### decode
+
+Decodes `EncodedContent` back into a read receipt.
+
+```swift
+public func decode(content: EncodedContent) throws -> ReadReceipt
+```
+
+**Parameters:**
+- `content`: The encoded content to decode
+
+**Returns:** A new `ReadReceipt` instance
+
+### fallback
+
+Provides fallback text for clients that don't support read receipts.
+
+```swift
+public func fallback(content: ReadReceipt) throws -> String?
+```
+
+**Returns:** `nil` (read receipts have no meaningful fallback text)
+
+### shouldPush
+
+Determines if this content should trigger a push notification.
+
+```swift
+public func shouldPush(content: ReadReceipt) throws -> Bool
+```
+
+**Returns:** `false` (read receipts should not trigger notifications)
+
+## Usage
+
+### Registering the Codec
+
+```swift
+let client = try await Client.create(account: account)
+client.register(codec: ReadReceiptCodec())
+```
+
+### Sending a Read Receipt
+
+```swift
+// Send a read receipt for the current conversation
+let readReceipt = ReadReceipt()
+
+try await conversation.send(
+    content: readReceipt,
+    options: .init(contentType: ContentTypeReadReceipt)
+)
+```
+
+### Automatic Read Receipts
+
+```swift
+class ConversationViewController {
+    var conversation: Conversation
+    
+    func markAsRead() async throws {
+        // Send read receipt when user views the conversation
+        try await conversation.send(
+            content: ReadReceipt(),
+            options: .init(contentType: ContentTypeReadReceipt)
+        )
+    }
+    
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        
+        Task {
+            try await markAsRead()
+        }
+    }
+}
+```
+
+### Receiving Read Receipts
+
+```swift
+for try await message in conversation.streamMessages() {
+    if message.encodedContent.type == ContentTypeReadReceipt {
+        print("\(message.senderAddress) read the conversation at \(message.sentAt)")
+        
+        // Update UI to show read indicator
+        updateReadStatus(for: message.senderAddress, at: message.sentAt)
+    }
+}
+```
+
+### Building Read Receipt Tracking
+
+```swift
+class ReadReceiptTracker {
+    // Track the last read timestamp for each participant
+    private var readTimestamps: [String: Date] = [:]
+    
+    func handleReadReceipt(from sender: String, at timestamp: Date) {
+        readTimestamps[sender] = timestamp
+    }
+    
+    func isMessageRead(_ message: Message, by address: String) -> Bool {
+        guard let readTime = readTimestamps[address] else {
+            return false
+        }
+        return message.sentAt <= readTime
+    }
+    
+    func getReadReceipts(for message: Message) -> [String] {
+        return readTimestamps.compactMap { (address, timestamp) in
+            message.sentAt <= timestamp ? address : nil
+        }
+    }
+}
+```
+
+### Privacy-Conscious Read Receipts
+
+```swift
+class ReadReceiptManager {
+    private var userSettings: UserSettings
+    
+    func shouldSendReadReceipt(for conversation: Conversation) -> Bool {
+        return userSettings.readReceiptsEnabled
+    }
+    
+    func sendReadReceiptIfEnabled(for conversation: Conversation) async throws {
+        guard shouldSendReadReceipt(for: conversation) else {
+            return
+        }
+        
+        try await conversation.send(
+            content: ReadReceipt(),
+            options: .init(contentType: ContentTypeReadReceipt)
+        )
+    }
+}
+```
+
+### Displaying Read Indicators
+
+```swift
+struct MessageCell: View {
+    let message: Message
+    let readReceipts: [String]
+    
+    var body: some View {
+        HStack {
+            Text(message.body)
+            
+            Spacer()
+            
+            if !readReceipts.isEmpty {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.blue)
+                    .help("Read by \(readReceipts.count) people")
+            }
+        }
+    }
+}
+```
+
+## Advanced Usage
+
+### Batch Read Receipts
+
+```swift
+func sendReadReceiptForLatestMessages(conversation: Conversation) async throws {
+    // Only send one read receipt for the entire conversation
+    // The timestamp indicates all messages up to that point are read
+    try await conversation.send(
+        content: ReadReceipt(),
+        options: .init(contentType: ContentTypeReadReceipt)
+    )
+}
+```
+
+### Read Receipt with Throttling
+
+```swift
+class ThrottledReadReceiptManager {
+    private var lastSentTime: [String: Date] = [:]
+    private let throttleInterval: TimeInterval = 60 // 1 minute
+    
+    func sendReadReceiptIfNeeded(for conversation: Conversation) async throws {
+        let conversationId = conversation.topic
+        let now = Date()
+        
+        if let lastSent = lastSentTime[conversationId],
+           now.timeIntervalSince(lastSent) < throttleInterval {
+            // Too soon, skip sending
+            return
+        }
+        
+        try await conversation.send(
+            content: ReadReceipt(),
+            options: .init(contentType: ContentTypeReadReceipt)
+        )
+        
+        lastSentTime[conversationId] = now
+    }
+}
+```
+
+### Group Conversation Read Tracking
+
+```swift
+class GroupReadTracker {
+    struct ReadInfo {
+        let address: String
+        let timestamp: Date
+    }
+    
+    private var readReceipts: [ReadInfo] = []
+    
+    func addReadReceipt(from address: String, at timestamp: Date) {
+        // Remove old receipt from same address
+        readReceipts.removeAll { $0.address == address }
+        
+        // Add new receipt
+        readReceipts.append(ReadInfo(address: address, timestamp: timestamp))
+    }
+    
+    func getReadByCount(for message: Message) -> Int {
+        return readReceipts.filter { $0.timestamp >= message.sentAt }.count
+    }
+    
+    func getReadByAddresses(for message: Message) -> [String] {
+        return readReceipts
+            .filter { $0.timestamp >= message.sentAt }
+            .map { $0.address }
+    }
+}
+```
+
+## Encoded Format
+
+The codec produces `EncodedContent` with:
+- **type**: `ContentTypeReadReceipt`
+- **content**: Empty `Data()`
+- **parameters**: None
+
+The read receipt information is conveyed entirely through:
+1. The message content type
+2. The sender's address (from message metadata)
+3. The sent timestamp (from message metadata)
+
+## Notes
+
+<Info>
+Read receipts are intentionally simple and contain no data. The timestamp from the message metadata indicates that all messages sent before that time have been read.
+</Info>
+
+<Tip>
+Consider implementing user preferences to enable or disable read receipts for privacy. Not all users want to send read receipts.
+</Tip>
+
+<Warning>
+Read receipts do not trigger push notifications (`shouldPush` returns `false`). This prevents notification spam and respects user privacy.
+</Warning>
+
+## Privacy Considerations
+
+1. **User Control**: Always provide users with the option to disable read receipts
+2. **No Notification**: Read receipts don't trigger push notifications to respect privacy
+3. **Timestamp Only**: The codec only tracks when messages were read, not what was read
+4. **Opt-in**: Consider making read receipts opt-in rather than opt-out
+
+## Best Practices
+
+1. **Throttle Sending**: Don't send a read receipt for every single message; batch them by time
+2. **Send on View**: Send read receipts when the conversation view appears, not for each message
+3. **Respect Privacy**: Allow users to disable read receipts in settings
+4. **Silent Operation**: Read receipts should work silently in the background without user interaction
+5. **Group Chats**: In group conversations, show aggregate read counts rather than individual receipts

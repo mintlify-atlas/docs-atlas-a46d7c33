@@ -1,0 +1,422 @@
+---
+title: Messages
+description: Understanding message structure, encoding, and delivery in XMTP
+---
+
+Messages are the fundamental unit of communication in XMTP. They're encrypted end-to-end and support various content types including text, attachments, reactions, and custom content.
+
+## Overview
+
+Messages in XMTP are encoded using content codecs, encrypted with the MLS protocol, and delivered through the XMTP network. Each message has metadata including sender information, timestamps, and delivery status.
+
+```swift
+// Send a message
+try await conversation.send(content: "Hello!")
+
+// Read messages
+let messages = try await conversation.messages()
+```
+
+## Message structure
+
+Each message contains several key components:
+
+### Core properties
+
+```swift
+let message = messages.first
+
+// Unique message ID
+let id = message.id
+
+// Sender's inbox ID
+let senderId = message.senderInboxId
+
+// Timestamp (Date)
+let sentAt = message.sentAt
+
+// Timestamp (nanoseconds)
+let sentAtNs = message.sentAtNs
+
+// Conversation ID
+let conversationId = message.conversationId
+```
+
+### Content
+
+Message content is decoded based on its content type.
+
+```swift
+// Decode as text
+let text: String = try message.content()
+
+// Decode as specific type
+let attachment: Attachment = try message.content()
+
+// Get the content type
+let contentType = message.contentType
+```
+
+### Delivery status
+
+```swift
+// Check delivery status
+let status = message.deliveryStatus
+
+switch status {
+case .published:
+  print("Message delivered")
+case .unpublished:
+  print("Message pending")
+case .failed:
+  print("Message failed")
+}
+```
+
+## Sending messages
+
+### Send text
+
+The simplest way to send a message is with plain text.
+
+```swift
+try await conversation.send(content: "Hello, world!")
+```
+
+### Send with content type
+
+Send messages with different content types.
+
+```swift
+// Send an attachment
+let attachment = Attachment(
+  filename: "document.pdf",
+  mimeType: "application/pdf",
+  data: pdfData
+)
+
+try await conversation.send(
+  content: attachment,
+  options: .init(contentType: ContentTypeAttachment)
+)
+
+// Send a reaction
+let reaction = Reaction(
+  reference: messageId,
+  action: .added,
+  schema: .unicode,
+  content: "👍"
+)
+
+try await conversation.send(
+  content: reaction,
+  options: .init(contentType: ContentTypeReaction)
+)
+```
+
+### Send options
+
+Customize message sending behavior.
+
+```swift
+let options = SendOptions(
+  contentType: ContentTypeText,
+  compression: .gzip,
+  ephemeral: true
+)
+
+try await conversation.send(
+  content: "Secret message",
+  options: options
+)
+```
+
+<Info>
+Ephemeral messages are not stored in the local database and won't appear in message history.
+</Info>
+
+## Reading messages
+
+### List messages
+
+```swift
+let messages = try await conversation.messages()
+
+for message in messages {
+  let content: String = try message.content()
+  print("\(message.senderInboxId): \(content)")
+}
+```
+
+### Pagination
+
+Load messages in batches for better performance.
+
+```swift
+// First page
+let page1 = try await conversation.messages(limit: 50)
+
+// Next page
+if let lastMessage = page1.last {
+  let page2 = try await conversation.messages(
+    limit: 50,
+    before: lastMessage.sentAtNs
+  )
+}
+```
+
+### Filter by time
+
+```swift
+// Messages from the last hour
+let oneHourAgo = Date().addingTimeInterval(-3600)
+let recent = try await conversation.messages(after: oneHourAgo)
+
+// Messages before a specific date
+let older = try await conversation.messages(before: someDate)
+
+// Messages in a time range
+let inRange = try await conversation.messages(
+  after: startDate,
+  before: endDate
+)
+```
+
+### Sort order
+
+```swift
+// Newest first (default)
+let descending = try await conversation.messages(
+  direction: .descending
+)
+
+// Oldest first
+let ascending = try await conversation.messages(
+  direction: .ascending
+)
+```
+
+## Enriched messages
+
+Enriched messages include additional metadata useful for UI rendering.
+
+```swift
+let enriched = try await conversation.enrichedMessages()
+
+for message in enriched {
+  // Check if you sent the message
+  if message.isSent {
+    print("You sent this message")
+  }
+  
+  // Access sender information
+  if let sender = message.sender {
+    print("From: \(sender.inboxId)")
+  }
+  
+  // Get content
+  let content: String = try message.content()
+}
+```
+
+## Streaming messages
+
+Receive messages in real-time as they arrive.
+
+```swift
+Task {
+  for try await message in conversation.streamMessages() {
+    let content: String = try message.content()
+    print("New message: \(content)")
+  }
+}
+```
+
+### Stop streaming
+
+```swift
+conversation.endStream()
+```
+
+## Content types
+
+XMTP supports various built-in content types and allows custom types.
+
+### Built-in content types
+
+- **Text**: Plain text messages
+- **Attachment**: Files with metadata (name, mime type, data)
+- **RemoteAttachment**: Encrypted files stored externally
+- **Reaction**: Emoji reactions to messages
+- **Reply**: Threaded replies
+- **ReadReceipt**: Message read indicators
+
+### Decoding content
+
+```swift
+// Decode based on content type
+if message.contentType == ContentTypeText {
+  let text: String = try message.content()
+} else if message.contentType == ContentTypeAttachment {
+  let attachment: Attachment = try message.content()
+} else if message.contentType == ContentTypeReaction {
+  let reaction: Reaction = try message.content()
+}
+```
+
+### Fallback content
+
+If the receiver doesn't support a content type, fallback text is shown.
+
+```swift
+// Custom codec can provide fallback
+func fallback(content: MyType) -> String? {
+  return "[Custom content: \(content.description)]"
+}
+```
+
+See [Content types](/concepts/content-types) for more details.
+
+## Message metadata
+
+### Conversation context
+
+```swift
+// Get the conversation for a message
+let conversationId = message.conversationId
+
+if let conversation = try await client.conversations.findGroup(
+  byId: conversationId.toHex
+) {
+  print("Message is in group: \(conversation.id)")
+}
+```
+
+### Sender information
+
+```swift
+let senderInboxId = message.senderInboxId
+
+// Check if you sent the message
+if senderInboxId == client.inboxID {
+  print("You sent this message")
+}
+```
+
+## Message operations
+
+### Find specific message
+
+```swift
+if let message = try await client.conversations.findMessage(
+  messageId: messageId
+) {
+  let content: String = try message.content()
+  print("Found: \(content)")
+}
+```
+
+### Count messages
+
+```swift
+let count = try await conversation.messagesCount()
+print("Total messages: \(count)")
+```
+
+### Process messages
+
+Process a batch of messages efficiently.
+
+```swift
+let messageIds = [id1, id2, id3]
+try await conversation.processMessage(messageIds: messageIds)
+```
+
+## Disappearing messages
+
+Messages can be configured to automatically delete after a specified time.
+
+```swift
+// Enable disappearing messages
+try await conversation.updateConversationMessageDisappearing(
+  disappearingMessagesSetting: .enabled,
+  timeNs: 3600 * 1_000_000_000 // 1 hour
+)
+
+// Check if enabled
+if try conversation.isDisappearingMessagesEnabled() {
+  if let settings = conversation.disappearingMessageSettings {
+    print("Messages expire after: \(settings.timeNs) ns")
+  }
+}
+```
+
+## Message deletion
+
+Delete messages from the conversation.
+
+```swift
+// Delete a specific message
+try await conversation.deleteMessage(messageId: messageId)
+
+// Stream deletion events
+for try await deleted in client.conversations.streamMessageDeletions() {
+  print("Message deleted: \(deleted.id.toHex)")
+}
+```
+
+<Warning>
+Message deletion removes the message from the local database but may not remove it from other participants' devices immediately.
+</Warning>
+
+## Error handling
+
+Handle message-related errors gracefully.
+
+```swift
+do {
+  try await conversation.send(content: "Hello")
+} catch let error as CodecError {
+  switch error {
+  case .codecNotFound(let contentType):
+    print("No codec for: \(contentType)")
+  case .decodingError(let message):
+    print("Failed to decode: \(message)")
+  default:
+    print("Codec error: \(error)")
+  }
+} catch {
+  print("Failed to send: \(error)")
+}
+```
+
+## Best practices
+
+<CardGroup cols={2}>
+  <Card title="Paginate message history" icon="list">
+    Load messages in batches rather than all at once for better performance.
+  </Card>
+  <Card title="Use streaming for real-time" icon="tower-broadcast">
+    Implement message streaming for instant delivery instead of polling.
+  </Card>
+  <Card title="Handle codec errors" icon="triangle-exclamation">
+    Always handle cases where content types aren't supported.
+  </Card>
+  <Card title="Cache enriched messages" icon="database">
+    Cache enriched message data to avoid repeated queries for sender info.
+  </Card>
+</CardGroup>
+
+## Related documentation
+
+<CardGroup cols={3}>
+  <Card title="Content types" icon="file-code" href="/concepts/content-types">
+    Learn about message content types and codecs
+  </Card>
+  <Card title="Sending messages" icon="paper-plane" href="/guides/sending-messages">
+    Detailed guide to sending messages
+  </Card>
+  <Card title="Receiving messages" icon="inbox" href="/guides/receiving-messages">
+    Guide to receiving and displaying messages
+  </Card>
+</CardGroup>

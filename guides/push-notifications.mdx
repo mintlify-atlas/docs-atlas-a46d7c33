@@ -1,0 +1,392 @@
+---
+title: Push Notifications
+description: Set up and manage push notifications for XMTP messages
+---
+
+XMTP supports push notifications through integration with notification services. This enables your app to receive real-time alerts when new messages arrive, even when the app is in the background.
+
+## Prerequisites
+
+- An APNS (Apple Push Notification Service) device token
+- A push notification server URL
+- XMTP client configured with push support
+
+## Setup
+
+### Configure XMTPPush
+
+<Steps>
+  <Step title="Set the push server">
+    Configure the push notification server URL:
+
+    ```swift
+    import XMTP
+
+    XMTPPush.shared.setPushServer("https://your-push-server.com")
+    ```
+  </Step>
+
+  <Step title="Request notification authorization">
+    Request permission from the user:
+
+    ```swift
+    let granted = try await XMTPPush.shared.request()
+    if granted {
+        print("Notifications authorized")
+    } else {
+        print("User denied notification permission")
+    }
+    ```
+  </Step>
+
+  <Step title="Register the device token">
+    Register your APNS device token with XMTP:
+
+    ```swift
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
+        
+        Task {
+            try await XMTPPush.shared.register(token: token)
+        }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Subscribe to Topics
+
+### Basic Topic Subscription
+
+Subscribe to conversation topics to receive notifications:
+
+```swift
+// Subscribe to a single conversation
+let topics = try group.getPushTopics()
+try await XMTPPush.shared.subscribe(topics: topics)
+
+// Subscribe to all conversations
+let allTopics = try await client.conversations.allPushTopics()
+try await XMTPPush.shared.subscribe(topics: allTopics)
+```
+
+### Subscription with Metadata
+
+Subscribe with HMAC keys for secure notifications:
+
+```swift
+// Get HMAC keys for conversations
+let hmacKeys = try group.getHmacKeys()
+
+// Create subscriptions with metadata
+var subscriptions: [NotificationSubscription] = []
+
+for (topic, keys) in hmacKeys.hmacKeys {
+    let hmacKeyData = keys.values.map { keyData in
+        NotificationSubscriptionHmacKey.with {
+            $0.key = keyData.hmacKey
+            $0.thirtyDayPeriodsSinceEpoch = keyData.thirtyDayPeriodsSinceEpoch
+        }
+    }
+    
+    let subscription = NotificationSubscription.with {
+        $0.topic = topic
+        $0.hmacKeys = hmacKeyData
+    }
+    
+    subscriptions.append(subscription)
+}
+
+// Subscribe with metadata
+try await XMTPPush.shared.subscribeWithMetadata(
+    subscriptions: subscriptions
+)
+```
+
+## Unsubscribe from Topics
+
+Stop receiving notifications for specific conversations:
+
+```swift
+// Unsubscribe from a specific group
+let topics = try group.getPushTopics()
+try await XMTPPush.shared.unsubscribe(topics: topics)
+
+// Unsubscribe from multiple topics
+let topicsToRemove = ["topic1", "topic2", "topic3"]
+try await XMTPPush.shared.unsubscribe(topics: topicsToRemove)
+```
+
+## Getting Push Topics
+
+### Group Topics
+
+Get push topics for a group conversation:
+
+```swift
+let topics = try group.getPushTopics()
+print("Group topics: \(topics)")
+```
+
+### DM Topics
+
+DMs may have multiple topics due to duplicate detection:
+
+```swift
+let topics = try await dm.getPushTopics()
+print("DM topics: \(topics)")
+// Returns topics for the DM and any duplicates
+```
+
+### All Conversation Topics
+
+Get topics for all conversations:
+
+```swift
+let allTopics = try await client.conversations.allPushTopics()
+print("Total topics: \(allTopics.count)")
+```
+
+## HMAC Keys for Secure Notifications
+
+HMAC keys enable secure push notifications by allowing verification without decrypting messages:
+
+### Get HMAC Keys for a Group
+
+```swift
+let hmacKeysResponse = try group.getHmacKeys()
+
+for (topic, hmacKeys) in hmacKeysResponse.hmacKeys {
+    print("Topic: \(topic)")
+    
+    for keyData in hmacKeys.values {
+        print("  Key: \(keyData.hmacKey.base64EncodedString())")
+        print("  Epoch: \(keyData.thirtyDayPeriodsSinceEpoch)")
+    }
+}
+```
+
+### Get HMAC Keys for All Conversations
+
+```swift
+let allHmacKeys = try client.conversations.getHmacKeys()
+
+for (topic, hmacKeys) in allHmacKeys.hmacKeys {
+    // Process each conversation's HMAC keys
+    print("Topic \(topic) has \(hmacKeys.values.count) keys")
+}
+```
+
+## Handling Push Notifications
+
+### Process Remote Notifications
+
+Handle incoming notifications in your app:
+
+```swift
+func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+) {
+    let userInfo = response.notification.request.content.userInfo
+    
+    // Extract conversation ID from notification
+    if let conversationId = userInfo["conversationId"] as? String {
+        Task {
+            // Find the conversation
+            if let conversation = try await client.conversations.findConversation(
+                conversationId: conversationId
+            ) {
+                // Navigate to conversation in your UI
+                await MainActor.run {
+                    navigateToConversation(conversation)
+                }
+            }
+        }
+    }
+    
+    completionHandler()
+}
+```
+
+### Process Message from Notification
+
+If your notification includes message data:
+
+```swift
+func processNotificationMessage(
+    envelopeData: Data,
+    conversationId: String
+) async throws {
+    // Find the conversation
+    guard let conversation = try await client.conversations.findConversation(
+        conversationId: conversationId
+    ) else {
+        return
+    }
+    
+    // Process the message based on conversation type
+    switch conversation {
+    case .group(let group):
+        if let message = try await group.processMessage(
+            messageBytes: envelopeData
+        ) {
+            displayNotification(for: message)
+        }
+    case .dm(let dm):
+        if let message = try await dm.processMessage(
+            messageBytes: envelopeData
+        ) {
+            displayNotification(for: message)
+        }
+    }
+}
+```
+
+## Notification Service Extension
+
+For rich notifications, implement a Notification Service Extension:
+
+```swift
+import UserNotifications
+import XMTP
+
+class NotificationService: UNNotificationServiceExtension {
+    var contentHandler: ((UNNotificationContent) -> Void)?
+    var bestAttemptContent: UNMutableNotificationContent?
+    
+    override func didReceive(
+        _ request: UNNotificationRequest,
+        withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
+    ) {
+        self.contentHandler = contentHandler
+        bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent)
+        
+        if let bestAttemptContent = bestAttemptContent {
+            // Decrypt and modify notification content
+            Task {
+                await processNotification(bestAttemptContent)
+                contentHandler(bestAttemptContent)
+            }
+        }
+    }
+    
+    func processNotification(
+        _ content: UNMutableNotificationContent
+    ) async {
+        // Extract encrypted message data
+        guard let encryptedData = content.userInfo["encryptedMessage"] as? Data else {
+            return
+        }
+        
+        // Initialize client (use shared encryption key)
+        let client = try? await getClient()
+        
+        // Process and decrypt message
+        // Update notification content with decrypted message
+        content.title = "New Message"
+        content.body = "Decrypted message preview"
+    }
+}
+```
+
+## Managing Subscriptions
+
+### Sync Subscriptions on App Launch
+
+```swift
+func syncPushSubscriptions() async throws {
+    // Get all current conversation topics
+    let currentTopics = try await client.conversations.allPushTopics()
+    
+    // Subscribe to all topics
+    try await XMTPPush.shared.subscribe(topics: currentTopics)
+}
+```
+
+### Update Subscriptions on Conversation Changes
+
+Subscribe when joining new conversations:
+
+```swift
+// After creating a new group
+let group = try await client.conversations.newGroup(with: inboxIds)
+let topics = try group.getPushTopics()
+try await XMTPPush.shared.subscribe(topics: topics)
+```
+
+Unsubscribe when leaving conversations:
+
+```swift
+// Before leaving a group
+let topics = try group.getPushTopics()
+try await group.leaveGroup()
+try await XMTPPush.shared.unsubscribe(topics: topics)
+```
+
+## Error Handling
+
+```swift
+do {
+    try await XMTPPush.shared.subscribe(topics: topics)
+} catch XMTPPushError.noPushServer {
+    print("Push server not configured")
+    // Configure push server first
+} catch {
+    print("Failed to subscribe: \(error)")
+    // Retry or notify user
+}
+```
+
+## Installation ID
+
+Each device has a unique installation ID:
+
+```swift
+// Access installation ID (managed automatically)
+let installationId = XMTPPush.shared.installationID
+print("Device installation ID: \(installationId)")
+```
+
+The installation ID is automatically generated and persisted in UserDefaults.
+
+## Best Practices
+
+1. **Subscribe on app launch** - Ensure subscriptions are current
+2. **Update on conversation changes** - Subscribe/unsubscribe dynamically
+3. **Use HMAC keys** - Enable secure notification verification
+4. **Handle failures gracefully** - Network issues can affect subscriptions
+5. **Implement retry logic** - Retry failed subscriptions with backoff
+6. **Test notification service** - Verify extension processes messages correctly
+7. **Respect user preferences** - Honor notification settings
+
+## Platform Availability
+
+<Warning>
+XMTPPush is only available on iOS. On other platforms, the XMTPPush APIs will throw a fatal error.
+</Warning>
+
+```swift
+#if canImport(UIKit)
+    // iOS implementation
+    try await XMTPPush.shared.subscribe(topics: topics)
+#else
+    // Not available on macOS/Linux
+    print("Push notifications not supported on this platform")
+#endif
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Receiving Messages" icon="inbox" href="/guides/receiving-messages">
+    Handle incoming messages in your app
+  </Card>
+  <Card title="Managing Groups" icon="users" href="/guides/managing-groups">
+    Manage group conversation subscriptions
+  </Card>
+</CardGroup>

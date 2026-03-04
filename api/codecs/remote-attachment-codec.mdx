@@ -1,0 +1,328 @@
+---
+title: RemoteAttachmentCodec
+description: Codec for encoding and decoding remote attachment references with encryption
+---
+
+## Overview
+
+The `RemoteAttachmentCodec` allows sending references to files stored externally (e.g., IPFS, cloud storage) with end-to-end encryption. This is ideal for large files that would be impractical to embed directly in messages.
+
+## Content Type
+
+```swift
+public let ContentTypeRemoteAttachment = ContentTypeID(
+    authorityID: "xmtp.org",
+    typeID: "remoteStaticAttachment",
+    versionMajor: 1,
+    versionMinor: 0
+)
+```
+
+## Data Structures
+
+### RemoteAttachment
+
+```swift
+public struct RemoteAttachment {
+    public var url: String
+    public var contentDigest: String
+    public var secret: Data
+    public var salt: Data
+    public var nonce: Data
+    public var scheme: Scheme
+    public var contentLength: Int?
+    public var filename: String?
+    
+    public enum Scheme: String {
+        case https
+    }
+}
+```
+
+**Properties:**
+- `url`: The HTTPS URL where the encrypted file is stored
+- `contentDigest`: SHA-256 hash of the encrypted payload for verification
+- `secret`: 32-byte encryption secret
+- `salt`: HKDF salt used in key derivation
+- `nonce`: AES-GCM nonce for encryption
+- `scheme`: URL scheme (currently only HTTPS is supported)
+- `contentLength`: Optional file size in bytes
+- `filename`: Optional filename
+
+### RemoteAttachmentCodec
+
+```swift
+public struct RemoteAttachmentCodec: ContentCodec {
+    public typealias T = RemoteAttachment
+    public var contentType = ContentTypeRemoteAttachment
+}
+```
+
+## Methods
+
+### encode
+
+Encodes a remote attachment reference into `EncodedContent`.
+
+```swift
+public func encode(content: RemoteAttachment) throws -> EncodedContent
+```
+
+**Parameters:**
+- `content`: The remote attachment to encode
+
+**Returns:** `EncodedContent` with URL and encryption metadata
+
+### decode
+
+Decodes `EncodedContent` back into a remote attachment reference.
+
+```swift
+public func decode(content: EncodedContent) throws -> RemoteAttachment
+```
+
+**Parameters:**
+- `content`: The encoded content to decode
+
+**Returns:** The decoded `RemoteAttachment`
+
+**Throws:**
+- `RemoteAttachmentError.invalidURL`: Invalid URL format
+- `RemoteAttachmentError.invalidDigest`: Missing or invalid content digest
+- `RemoteAttachmentError.invalidScheme`: Invalid or unsupported URL scheme
+- `RemoteAttachmentError.invalidParameters`: Missing required parameters
+
+### fallback
+
+Provides fallback text for clients that don't support remote attachments.
+
+```swift
+public func fallback(content: RemoteAttachment) throws -> String?
+```
+
+**Returns:** A message indicating the attachment cannot be displayed
+
+### shouldPush
+
+Determines if this content should trigger a push notification.
+
+```swift
+public func shouldPush(content: RemoteAttachment) throws -> Bool
+```
+
+**Returns:** `true` (remote attachments should trigger notifications)
+
+## Static Methods
+
+### encodeEncrypted
+
+Encrypts content using a codec and returns encrypted encoded content.
+
+```swift
+public static func encodeEncrypted<Codec: ContentCodec, T>(
+    content: T,
+    codec: Codec
+) throws -> EncryptedEncodedContent where Codec.T == T
+```
+
+**Parameters:**
+- `content`: The content to encrypt
+- `codec`: The codec to encode the content
+
+**Returns:** `EncryptedEncodedContent` with encrypted payload and encryption metadata
+
+### encodeEncryptedBytes
+
+Encrypts raw bytes and returns encrypted encoded content.
+
+```swift
+public static func encodeEncryptedBytes(
+    encodedContent: Data,
+    filename: String
+) throws -> EncryptedEncodedContent
+```
+
+**Parameters:**
+- `encodedContent`: Raw bytes to encrypt
+- `filename`: The filename
+
+**Returns:** `EncryptedEncodedContent` with encrypted payload
+
+### decryptEncoded
+
+Decrypts encrypted encoded content.
+
+```swift
+public static func decryptEncoded(
+    encrypted: EncryptedEncodedContent
+) throws -> EncodedContent
+```
+
+**Parameters:**
+- `encrypted`: The encrypted content to decrypt
+
+**Returns:** Decrypted `EncodedContent`
+
+**Throws:** `RemoteAttachmentError.invalidDigest` if content digest doesn't match
+
+## Instance Methods
+
+### content
+
+Fetches and decrypts the remote attachment content.
+
+```swift
+public func content() async throws -> EncodedContent
+```
+
+**Returns:** Decrypted `EncodedContent`
+
+**Throws:**
+- `RemoteAttachmentError.payloadNotFound`: Empty payload from URL
+- `RemoteAttachmentError.invalidDigest`: Content digest mismatch
+
+## Usage
+
+### Registering the Codec
+
+```swift
+let client = try await Client.create(account: account)
+client.register(codec: RemoteAttachmentCodec())
+client.register(codec: AttachmentCodec())
+```
+
+### Sending a Remote Attachment
+
+```swift
+// 1. Load the file
+let imageData = UIImage(named: "large-photo")?.jpegData(compressionQuality: 0.8)
+let attachment = Attachment(
+    filename: "large-photo.jpg",
+    mimeType: "image/jpeg",
+    data: imageData!
+)
+
+// 2. Encrypt the attachment
+let encryptedEncoded = try RemoteAttachment.encodeEncrypted(
+    content: attachment,
+    codec: AttachmentCodec()
+)
+
+// 3. Upload encrypted payload to your storage service
+let uploadedURL = try await uploadToStorage(encryptedEncoded.payload)
+
+// 4. Create remote attachment reference
+let remoteAttachment = try RemoteAttachment(
+    url: uploadedURL,
+    encryptedEncodedContent: encryptedEncoded
+)
+
+// 5. Send the reference
+try await conversation.send(
+    content: remoteAttachment,
+    options: .init(contentType: ContentTypeRemoteAttachment)
+)
+```
+
+### Receiving a Remote Attachment
+
+```swift
+for try await message in conversation.streamMessages() {
+    if message.encodedContent.type == ContentTypeRemoteAttachment {
+        let remoteAttachment: RemoteAttachment = try message.content()
+        
+        // Fetch and decrypt the content
+        let encodedContent = try await remoteAttachment.content()
+        
+        // Decode to original attachment
+        let attachment = try AttachmentCodec().decode(content: encodedContent)
+        
+        print("Received file: \(attachment.filename)")
+        print("Size: \(attachment.data.count) bytes")
+        
+        // Display or save the attachment
+        // ...
+    }
+}
+```
+
+### Upload Helper Example
+
+```swift
+func uploadToStorage(_ data: Data) async throws -> String {
+    // Example: Upload to your cloud storage
+    let url = URL(string: "https://your-storage-service.com/upload")!
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.httpBody = data
+    
+    let (responseData, response) = try await URLSession.shared.data(for: request)
+    
+    // Parse response to get the uploaded file URL
+    let uploadedURL = // ... parse from responseData
+    return uploadedURL
+}
+```
+
+## Error Handling
+
+```swift
+public enum RemoteAttachmentError: Error {
+    case invalidURL
+    case v1NotSupported
+    case invalidParameters(String)
+    case invalidDigest(String)
+    case invalidScheme(String)
+    case payloadNotFound
+}
+```
+
+**Error Cases:**
+- `invalidURL`: URL format is invalid
+- `v1NotSupported`: Version 1 protocol not supported
+- `invalidParameters`: Missing required encryption parameters
+- `invalidDigest`: Content digest verification failed
+- `invalidScheme`: URL scheme is not HTTPS
+- `payloadNotFound`: No data fetched from URL
+
+## Security
+
+### Encryption
+
+The codec uses AES-256-GCM with HKDF-SHA256 for encryption:
+1. A random 32-byte secret is generated
+2. Content is encrypted using AES-256-GCM
+3. Key derivation uses HKDF with SHA-256
+4. SHA-256 digest of ciphertext ensures integrity
+
+### Verification
+
+When fetching content:
+1. Encrypted payload is downloaded from the URL
+2. SHA-256 hash is computed and compared with `contentDigest`
+3. If hashes match, content is decrypted using the secret
+4. Decrypted content is validated and returned
+
+## Encoded Format
+
+The codec produces `EncodedContent` with:
+- **type**: `ContentTypeRemoteAttachment`
+- **content**: UTF-8 encoded URL string
+- **parameters**:
+  - `contentDigest`: SHA-256 hash of encrypted payload (hex string)
+  - `secret`: 32-byte encryption key (hex string)
+  - `salt`: HKDF salt (hex string)
+  - `nonce`: AES-GCM nonce (hex string)
+  - `scheme`: "https"
+  - `contentLength`: File size as string (optional)
+  - `filename`: Original filename (optional)
+
+## Notes
+
+<Info>
+Remote attachments require you to provide your own storage solution (IPFS, S3, etc.). XMTP only transmits the encrypted reference, not the file itself.
+</Info>
+
+<Warning>
+Always use HTTPS URLs for remote attachments. HTTP and other schemes are not supported for security reasons.
+</Warning>

@@ -1,122 +1,113 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "XMTP iOS SDK",
+  "theme": "palm",
+  "mode": "custom",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#6F3FF5",
+    "light": "#A78BFA",
+    "dark": "#5B21B6"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/xmtp/xmtp-ios"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/xmtp/xmtp-ios"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "installation",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/client",
+              "concepts/conversations",
+              "concepts/groups",
+              "concepts/direct-messages",
+              "concepts/messages",
+              "concepts/content-types"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "guides/creating-client",
+              "guides/sending-messages",
+              "guides/receiving-messages",
+              "guides/managing-groups",
+              "guides/content-codecs",
+              "guides/push-notifications",
+              "guides/consent-preferences"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Advanced",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "advanced/database-encryption",
+              "advanced/custom-codecs",
+              "advanced/fork-recovery",
+              "advanced/streaming",
+              "advanced/testing"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Core Classes",
             "pages": [
-              "api-reference/introduction"
+              "api/client",
+              "api/conversations",
+              "api/group",
+              "api/dm"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Content Types",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/codecs/text-codec",
+              "api/codecs/attachment-codec",
+              "api/codecs/remote-attachment-codec",
+              "api/codecs/reaction-codec",
+              "api/codecs/reply-codec",
+              "api/codecs/read-receipt-codec"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "api/client-options",
+              "api/send-options",
+              "api/consent-state"
+            ]
+          },
+          {
+            "group": "Types & Protocols",
+            "pages": [
+              "api/signing-key",
+              "api/content-codec",
+              "api/xmtp-environment"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

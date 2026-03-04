@@ -1,0 +1,226 @@
+---
+title: ConsentState
+description: Enum representing user consent preferences
+---
+
+`ConsentState` is an enum that represents the consent state for conversations and contacts in XMTP. It determines whether messages from specific conversations or inbox IDs should be allowed, denied, or treated as unknown.
+
+## Enum Cases
+
+<ParamField path="allowed" type="ConsentState">
+  The conversation or inbox ID is explicitly allowed. Messages will be received and displayed.
+</ParamField>
+
+<ParamField path="denied" type="ConsentState">
+  The conversation or inbox ID is explicitly denied (blocked). Messages may be filtered or hidden.
+</ParamField>
+
+<ParamField path="unknown" type="ConsentState">
+  The consent state is unknown or not yet set. This is the default state for new conversations.
+</ParamField>
+
+## Type Conformance
+
+`ConsentState` conforms to:
+- `String` - Raw representable as a string
+- `Codable` - Can be encoded and decoded
+
+## Related Types
+
+### ConsentRecord
+
+A struct that represents a consent record for a specific conversation or inbox.
+
+<ParamField path="value" type="String" required>
+  The identifier value (conversation ID or inbox ID).
+</ParamField>
+
+<ParamField path="entryType" type="EntryType" required>
+  The type of entry this record represents.
+  
+  - `.conversation_id` - Consent for a specific conversation
+  - `.inbox_id` - Consent for an entire inbox
+</ParamField>
+
+<ParamField path="consentType" type="ConsentState" required>
+  The consent state (allowed, denied, or unknown).
+</ParamField>
+
+### EntryType
+
+An enum specifying whether a consent record applies to a conversation or an inbox.
+
+<ParamField path="conversation_id" type="EntryType">
+  Consent applies to a specific conversation ID.
+</ParamField>
+
+<ParamField path="inbox_id" type="EntryType">
+  Consent applies to an entire inbox ID (all conversations with this contact).
+</ParamField>
+
+## Example Usage
+
+### Setting Consent for a Conversation
+
+```swift
+import XMTP
+
+// Allow a conversation
+let allowRecord = ConsentRecord(
+    value: conversationId,
+    entryType: .conversation_id,
+    consentType: .allowed
+)
+
+try await client.preferences.setConsentState(entries: [allowRecord])
+```
+
+### Blocking an Inbox
+
+```swift
+// Deny all conversations from an inbox
+let denyRecord = ConsentRecord(
+    value: inboxId,
+    entryType: .inbox_id,
+    consentType: .denied
+)
+
+try await client.preferences.setConsentState(entries: [denyRecord])
+```
+
+### Checking Consent State
+
+```swift
+// Check conversation consent state
+let conversationState = try await client.preferences.conversationState(
+    conversationId: conversationId
+)
+
+switch conversationState {
+case .allowed:
+    print("Messages allowed")
+case .denied:
+    print("Messages blocked")
+case .unknown:
+    print("No preference set")
+}
+
+// Check inbox consent state
+let inboxState = try await client.preferences.inboxIdState(
+    inboxId: inboxId
+)
+```
+
+### Using Convenience Methods
+
+```swift
+// Create a conversation consent record
+let record = ConsentRecord.conversationId(
+    conversationId: "abc123",
+    type: .allowed
+)
+
+// Create an inbox consent record
+let inboxRecord = ConsentRecord.inboxId(
+    "0x1234...",
+    type: .denied
+)
+```
+
+### Batch Setting Consent
+
+```swift
+// Set consent for multiple entries at once
+let records = [
+    ConsentRecord.conversationId("conversation1", type: .allowed),
+    ConsentRecord.conversationId("conversation2", type: .denied),
+    ConsentRecord.inboxId("inbox1", type: .allowed)
+]
+
+try await client.preferences.setConsentState(entries: records)
+```
+
+### Streaming Consent Updates
+
+```swift
+// Stream real-time consent updates
+for try await consentRecord in client.preferences.streamConsent() {
+    print("Consent updated:")
+    print("  Value: \(consentRecord.value)")
+    print("  Type: \(consentRecord.entryType)")
+    print("  State: \(consentRecord.consentType)")
+}
+```
+
+### Syncing Consent Preferences
+
+```swift
+// Sync consent preferences across devices
+try await client.preferences.sync()
+```
+
+## Use Cases
+
+### Spam Protection
+
+Use consent states to implement spam protection:
+
+```swift
+func handleNewConversation(_ conversation: Conversation) async throws {
+    let state = try await client.preferences.conversationState(
+        conversationId: conversation.id
+    )
+    
+    if state == .denied {
+        // Don't show conversation
+        return
+    }
+    
+    if state == .unknown {
+        // Show as message request
+        showAsMessageRequest(conversation)
+    } else {
+        // Show in main inbox
+        showInInbox(conversation)
+    }
+}
+```
+
+### Contact Blocking
+
+Block all conversations from a specific contact:
+
+```swift
+func blockContact(inboxId: String) async throws {
+    let record = ConsentRecord.inboxId(inboxId, type: .denied)
+    try await client.preferences.setConsentState(entries: [record])
+    
+    // Optionally sync immediately
+    try await client.preferences.sync()
+}
+```
+
+### Allowlist Management
+
+Maintain an allowlist of approved contacts:
+
+```swift
+func approveContact(inboxId: String) async throws {
+    let record = ConsentRecord.inboxId(inboxId, type: .allowed)
+    try await client.preferences.setConsentState(entries: [record])
+}
+```
+
+## Best Practices
+
+1. **Default to Unknown**: New conversations should start with `.unknown` state until the user takes action
+2. **Sync Regularly**: Call `client.preferences.sync()` to ensure consent preferences are synchronized across devices
+3. **Stream Updates**: Use `streamConsent()` to react to consent changes in real-time
+4. **Inbox vs Conversation**: Use inbox-level consent for blocking entire contacts, conversation-level for specific group chats
+5. **Batch Operations**: When setting multiple consent states, batch them into a single `setConsentState()` call
+
+## See Also
+
+- [PrivatePreferences](./private-preferences)
+- [Client.preferences](./client#preferences)
+- [Conversation](./conversation)

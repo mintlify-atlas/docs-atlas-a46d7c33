@@ -1,0 +1,379 @@
+---
+title: Fork Recovery
+description: Handle and recover from conversation state forks in group chats
+---
+
+In distributed messaging systems, conversation "forks" can occur when different group members have conflicting views of the conversation state. The XMTP iOS SDK includes fork recovery mechanisms to detect and resolve these conflicts.
+
+## What is a Fork?
+
+A fork happens when:
+
+- Network partitions cause members to process messages in different orders
+- Concurrent membership changes create conflicting group states  
+- Device sync issues result in divergent conversation histories
+
+When a fork occurs, different members may see different message histories, membership lists, or group settings.
+
+## Fork Recovery Options
+
+Configure fork recovery behavior using `ForkRecoveryOptions`:
+
+```swift Client.swift:46-72
+public struct ForkRecoveryOptions {
+    public var enableRecoveryRequests: ForkRecoveryPolicy
+    public var groupsToRequestRecovery: [String]
+    public var disableRecoveryResponses: Bool?
+    public var workerIntervalNs: UInt64?
+    
+    public init(
+        enableRecoveryRequests: ForkRecoveryPolicy,
+        groupsToRequestRecovery: [String],
+        disableRecoveryResponses: Bool? = nil,
+        workerIntervalNs: UInt64? = nil
+    ) {
+        self.enableRecoveryRequests = enableRecoveryRequests
+        self.groupsToRequestRecovery = groupsToRequestRecovery
+        self.disableRecoveryResponses = disableRecoveryResponses
+        self.workerIntervalNs = workerIntervalNs
+    }
+}
+```
+
+### Recovery Policies
+
+The `ForkRecoveryPolicy` enum defines when to request recovery:
+
+```swift Client.swift:29-44
+public enum ForkRecoveryPolicy {
+    case none           // Disable recovery requests
+    case allowlistedGroups  // Only recover specific groups
+    case all            // Recover all conversations
+}
+```
+
+## Configuration Examples
+
+### Disable Fork Recovery
+
+For testing or low-stakes conversations:
+
+```swift
+let options = ClientOptions(
+    api: .init(env: .production),
+    dbEncryptionKey: encryptionKey,
+    forkRecoveryOptions: ForkRecoveryOptions(
+        enableRecoveryRequests: .none,
+        groupsToRequestRecovery: []
+    )
+)
+
+let client = try await Client.create(account: signingKey, options: options)
+```
+
+### Recover Specific Groups
+
+Recover only high-priority conversations:
+
+```swift
+let importantGroupIds = [
+    "0x1234...",  // Executive team group
+    "0x5678..."   // Customer support group
+]
+
+let options = ClientOptions(
+    api: .init(env: .production),
+    dbEncryptionKey: encryptionKey,
+    forkRecoveryOptions: ForkRecoveryOptions(
+        enableRecoveryRequests: .allowlistedGroups,
+        groupsToRequestRecovery: importantGroupIds
+    )
+)
+
+let client = try await Client.create(account: signingKey, options: options)
+```
+
+### Recover All Conversations
+
+Maximum consistency for production applications:
+
+```swift Client.swift:114
+let options = ClientOptions(
+    api: .init(env: .production),
+    dbEncryptionKey: encryptionKey,
+    forkRecoveryOptions: ForkRecoveryOptions(
+        enableRecoveryRequests: .all,
+        groupsToRequestRecovery: []
+    )
+)
+
+let client = try await Client.create(account: signingKey, options: options)
+```
+
+## Advanced Configuration
+
+### Disable Recovery Responses
+
+Prevent this client from responding to recovery requests from others:
+
+```swift
+let options = ClientOptions(
+    api: .init(env: .production),
+    dbEncryptionKey: encryptionKey,
+    forkRecoveryOptions: ForkRecoveryOptions(
+        enableRecoveryRequests: .all,
+        groupsToRequestRecovery: [],
+        disableRecoveryResponses: true  // Don't help others recover
+    )
+)
+```
+
+<Warning>
+Disabling recovery responses can prevent other group members from recovering from forks. Only use this in specialized scenarios.
+</Warning>
+
+### Custom Worker Interval
+
+Adjust how frequently the recovery worker checks for forks:
+
+```swift
+let oneMinuteInNanoseconds: UInt64 = 60_000_000_000
+
+let options = ClientOptions(
+    api: .init(env: .production),
+    dbEncryptionKey: encryptionKey,
+    forkRecoveryOptions: ForkRecoveryOptions(
+        enableRecoveryRequests: .all,
+        groupsToRequestRecovery: [],
+        workerIntervalNs: oneMinuteInNanoseconds  // Check every minute
+    )
+)
+```
+
+Default interval is typically 30 seconds. Longer intervals reduce network usage but increase time to detect forks.
+
+## Detecting Forks
+
+Check if a conversation has experienced a fork:
+
+```swift Group.swift:531-537
+let group = try await client.conversations.findGroup(by: groupId)
+
+let forkStatus = group.commitLogForkStatus()
+
+switch forkStatus {
+case .notForked:
+    print("Conversation state is consistent")
+case .forked:
+    print("⚠️ Fork detected - recovery may be in progress")
+case .unknown:
+    print("Fork status not yet determined")
+}
+```
+
+### Fork Status Values
+
+```swift
+public enum CommitLogForkStatus {
+    case notForked  // No fork detected
+    case forked     // Fork detected  
+    case unknown    // Status not yet determined
+}
+```
+
+## Recovery Process
+
+When a fork is detected, the SDK:
+
+1. **Detection** - Identifies that local state differs from the network
+2. **Request** - Sends recovery requests to other group members
+3. **Response** - Other members send their state information
+4. **Resolution** - Merges states to achieve consistency
+5. **Sync** - Updates local database with resolved state
+
+### Manual Sync
+
+Trigger a manual sync to check for and resolve forks:
+
+```swift Group.swift:71-73
+let group = try await client.conversations.findGroup(by: groupId)
+
+// Sync with the network to detect and resolve forks
+try await group.sync()
+
+// Check if fork was resolved
+let newStatus = group.commitLogForkStatus()
+if newStatus == .notForked {
+    print("✅ Fork resolved successfully")
+}
+```
+
+## Monitoring Fork Status
+
+Monitor forks across all conversations:
+
+```swift
+func checkAllGroupsForForks(client: Client) async throws {
+    let groups = try await client.conversations.groups()
+    var forkedGroups: [String] = []
+    
+    for group in groups {
+        try await group.sync()
+        
+        if group.commitLogForkStatus() == .forked {
+            forkedGroups.append(group.id)
+            print("Fork detected in group: \(group.id)")
+        }
+    }
+    
+    if !forkedGroups.isEmpty {
+        print("⚠️ \(forkedGroups.count) groups have forks")
+        // Trigger alerts, logging, or recovery workflows
+    }
+}
+```
+
+## Production Recommendations
+
+<CardGroup cols={2}>
+  <Card title="Enable Recovery" icon="rotate">
+    Use `.all` policy in production for maximum consistency
+  </Card>
+  <Card title="Monitor Status" icon="chart-line">
+    Track fork occurrences to identify network or configuration issues
+  </Card>
+  <Card title="Regular Syncing" icon="sync">
+    Periodically sync conversations to detect forks early
+  </Card>
+  <Card title="User Communication" icon="message">
+    Inform users when forks occur and recovery is in progress
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+### Sync Before Critical Operations
+
+Sync conversations before important operations to ensure consistent state:
+
+```swift
+func sendImportantMessage(group: Group, content: String) async throws {
+    // Sync first to ensure we have the latest state
+    try await group.sync()
+    
+    // Check for forks
+    guard group.commitLogForkStatus() != .forked else {
+        throw MessageError.conversationForked
+    }
+    
+    // Send message with confidence
+    try await group.send(content: content)
+}
+```
+
+### Handle Fork UI States
+
+Provide clear UI feedback when forks are detected:
+
+```swift
+struct ConversationView: View {
+    let group: Group
+    @State private var forkStatus: CommitLogForkStatus = .unknown
+    
+    var body: some View {
+        VStack {
+            if forkStatus == .forked {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle")
+                    Text("Syncing conversation state...")
+                }
+                .padding()
+                .background(Color.yellow.opacity(0.2))
+            }
+            
+            // Message list
+            MessageList(group: group)
+        }
+        .onAppear {
+            Task {
+                try? await group.sync()
+                forkStatus = group.commitLogForkStatus()
+            }
+        }
+    }
+}
+```
+
+### Automatic Background Sync
+
+Set up periodic background syncing:
+
+```swift
+class ConversationSyncManager {
+    private var timer: Timer?
+    private let client: Client
+    
+    init(client: Client) {
+        self.client = client
+    }
+    
+    func startPeriodicSync(interval: TimeInterval = 60) {
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+            Task {
+                await self.syncAllConversations()
+            }
+        }
+    }
+    
+    func stopPeriodicSync() {
+        timer?.invalidate()
+        timer = nil
+    }
+    
+    private func syncAllConversations() async {
+        do {
+            let groups = try await client.conversations.groups()
+            for group in groups {
+                try? await group.sync()
+                
+                if group.commitLogForkStatus() == .forked {
+                    // Log or handle forked conversations
+                    print("Fork detected in group \(group.id)")
+                }
+            }
+        } catch {
+            print("Sync error: \(error)")
+        }
+    }
+}
+```
+
+## Troubleshooting
+
+### Persistent Forks
+
+If forks persist after recovery attempts:
+
+1. Ensure all group members have updated SDK versions
+2. Check network connectivity - recovery requires peer communication
+3. Verify recovery is not disabled on other members' clients
+4. Consider leaving and rejoining the group as a last resort
+
+### Recovery Performance
+
+If recovery is slow:
+
+- Reduce `workerIntervalNs` for faster detection
+- Ensure adequate network bandwidth
+- Check that `disableRecoveryResponses` is not set on other members
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Client Configuration" href="/configuration/client-options">
+    Full client configuration options
+  </Card>
+  <Card title="Group Conversations" href="/conversations/groups">
+    Working with group conversations
+  </Card>
+</CardGroup>

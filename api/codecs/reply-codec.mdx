@@ -1,0 +1,348 @@
+---
+title: ReplyCodec
+description: Codec for encoding and decoding message replies
+---
+
+## Overview
+
+The `ReplyCodec` enables threaded conversations by allowing messages to reference and reply to previous messages with any content type.
+
+## Content Type
+
+```swift
+public let ContentTypeReply = ContentTypeID(
+    authorityID: "xmtp.org",
+    typeID: "reply",
+    versionMajor: 1,
+    versionMinor: 0
+)
+```
+
+## Data Structures
+
+### Reply
+
+```swift
+public struct Reply {
+    public var reference: String
+    public var content: Any
+    public var contentType: ContentTypeID
+    public var inReplyTo: DecodedMessageV2?
+    
+    public init(
+        reference: String,
+        content: Any,
+        contentType: ContentTypeID
+    )
+    
+    public init(
+        reference: String,
+        content: Any,
+        contentType: ContentTypeID,
+        inReplyTo: DecodedMessageV2?
+    )
+}
+```
+
+**Properties:**
+- `reference`: The ID of the message being replied to
+- `content`: The reply content (can be any type supported by a registered codec)
+- `contentType`: The content type ID of the reply content
+- `inReplyTo`: Optional reference to the original message being replied to
+
+### ReplyCodec
+
+```swift
+public struct ReplyCodec: ContentCodec {
+    public var contentType = ContentTypeReply
+}
+```
+
+## Methods
+
+### encode
+
+Encodes a reply into `EncodedContent`.
+
+```swift
+public func encode(content reply: Reply) throws -> EncodedContent
+```
+
+**Parameters:**
+- `reply`: The reply to encode
+
+**Returns:** `EncodedContent` with nested encoded reply content
+
+**Throws:** `CodecError.invalidContent` if the content type is not registered or content cannot be encoded
+
+### decode
+
+Decodes `EncodedContent` back into a reply.
+
+```swift
+public func decode(content: EncodedContent) throws -> Reply
+```
+
+**Parameters:**
+- `content`: The encoded content to decode
+
+**Returns:** The decoded `Reply`
+
+**Throws:** `CodecError.invalidContent` if reference parameter is missing or content cannot be decoded
+
+### fallback
+
+Provides fallback text for clients that don't support replies.
+
+```swift
+public func fallback(content: Reply) throws -> String?
+```
+
+**Returns:** "Replied with \"[content]\" to an earlier message"
+
+### shouldPush
+
+Determines if this content should trigger a push notification.
+
+```swift
+public func shouldPush(content: Reply) throws -> Bool
+```
+
+**Returns:** `true` (replies should trigger notifications)
+
+## Usage
+
+### Registering the Codec
+
+```swift
+let client = try await Client.create(account: account)
+client.register(codec: ReplyCodec())
+```
+
+### Replying with Text
+
+```swift
+// Reference the original message
+let originalMessage = // ... get message to reply to
+
+let reply = Reply(
+    reference: originalMessage.id,
+    content: "Thanks for the info!",
+    contentType: ContentTypeText
+)
+
+try await conversation.send(
+    content: reply,
+    options: .init(contentType: ContentTypeReply)
+)
+```
+
+### Replying with an Attachment
+
+```swift
+// Register attachment codec
+client.register(codec: AttachmentCodec())
+
+let attachment = Attachment(
+    filename: "response.pdf",
+    mimeType: "application/pdf",
+    data: pdfData
+)
+
+let reply = Reply(
+    reference: originalMessage.id,
+    content: attachment,
+    contentType: ContentTypeAttachment
+)
+
+try await conversation.send(
+    content: reply,
+    options: .init(contentType: ContentTypeReply)
+)
+```
+
+### Including Original Message Context
+
+```swift
+let reply = Reply(
+    reference: originalMessage.id,
+    content: "I agree with this",
+    contentType: ContentTypeText,
+    inReplyTo: originalMessage
+)
+
+try await conversation.send(
+    content: reply,
+    options: .init(contentType: ContentTypeReply)
+)
+```
+
+### Receiving Replies
+
+```swift
+for try await message in conversation.streamMessages() {
+    if message.encodedContent.type == ContentTypeReply {
+        let reply: Reply = try message.content()
+        
+        print("Reply to message: \(reply.reference)")
+        print("Reply content type: \(reply.contentType)")
+        
+        // Handle different reply content types
+        if reply.contentType == ContentTypeText {
+            if let text = reply.content as? String {
+                print("Text reply: \(text)")
+            }
+        } else if reply.contentType == ContentTypeAttachment {
+            if let attachment = reply.content as? Attachment {
+                print("Attachment reply: \(attachment.filename)")
+            }
+        }
+        
+        // Access original message if available
+        if let originalMessage = reply.inReplyTo {
+            print("In reply to: \(originalMessage.id)")
+        }
+    }
+}
+```
+
+### Building a Threaded UI
+
+```swift
+class ThreadManager {
+    private var threads: [String: [Message]] = [:]
+    
+    func addMessage(_ message: Message) {
+        if message.encodedContent.type == ContentTypeReply,
+           let reply: Reply = try? message.content() {
+            // This is a reply, add to thread
+            let threadId = reply.reference
+            if threads[threadId] == nil {
+                threads[threadId] = []
+            }
+            threads[threadId]?.append(message)
+        } else {
+            // This is a root message, create new thread
+            threads[message.id] = [message]
+        }
+    }
+    
+    func getThread(for messageId: String) -> [Message] {
+        return threads[messageId] ?? []
+    }
+    
+    func getReplies(to messageId: String) -> [Message] {
+        var replies = threads[messageId] ?? []
+        if let firstMessage = replies.first {
+            replies.removeFirst() // Remove root message
+        }
+        return replies
+    }
+}
+```
+
+### Reply Chain Example
+
+```swift
+// Original message
+let msg1 = try await conversation.send(content: "What time is the meeting?")
+
+// First reply
+let reply1 = Reply(
+    reference: msg1.id,
+    content: "3 PM today",
+    contentType: ContentTypeText
+)
+let msg2 = try await conversation.send(
+    content: reply1,
+    options: .init(contentType: ContentTypeReply)
+)
+
+// Reply to the reply
+let reply2 = Reply(
+    reference: msg2.id,
+    content: "Perfect, thanks!",
+    contentType: ContentTypeText
+)
+try await conversation.send(
+    content: reply2,
+    options: .init(contentType: ContentTypeReply)
+)
+```
+
+## Advanced Usage
+
+### Generic Reply Handler
+
+```swift
+func handleReply<T>(_ reply: Reply, expectedType: T.Type) -> T? {
+    return reply.content as? T
+}
+
+// Usage
+if message.encodedContent.type == ContentTypeReply {
+    let reply: Reply = try message.content()
+    
+    if reply.contentType == ContentTypeText {
+        if let text = handleReply(reply, expectedType: String.self) {
+            print("Text reply: \(text)")
+        }
+    }
+}
+```
+
+### Replying with Custom Content Types
+
+```swift
+// Assuming you have a custom Poll content type registered
+struct Poll: Codable {
+    var question: String
+    var options: [String]
+}
+
+let poll = Poll(
+    question: "What time works best?",
+    options: ["2 PM", "3 PM", "4 PM"]
+)
+
+let reply = Reply(
+    reference: originalMessage.id,
+    content: poll,
+    contentType: ContentTypePoll // Your custom content type
+)
+
+try await conversation.send(
+    content: reply,
+    options: .init(contentType: ContentTypeReply)
+)
+```
+
+## Encoded Format
+
+The codec produces `EncodedContent` with:
+- **type**: `ContentTypeReply`
+- **content**: Serialized `EncodedContent` of the reply content
+- **parameters**:
+  - `reference`: Message ID being replied to
+  - `contentType`: Description of the reply content type (legacy, for compatibility)
+
+## Error Handling
+
+The codec uses the standard `CodecError.invalidContent` for:
+- Missing reference parameter
+- Unregistered reply content type
+- Invalid content that doesn't match the codec type
+
+## Notes
+
+<Info>
+The `ReplyCodec` uses the `Client.codecRegistry` to encode and decode the nested reply content. Ensure all content types used in replies are registered before encoding or decoding.
+</Info>
+
+<Tip>
+Replies can contain any content type supported by XMTP, including text, attachments, reactions, or custom content types. This makes the reply system extremely flexible.
+</Tip>
+
+<Warning>
+When building threaded UIs, be careful with deeply nested reply chains. Consider flattening the display or showing only a few levels of nesting for better UX.
+</Warning>
